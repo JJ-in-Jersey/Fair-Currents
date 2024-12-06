@@ -38,11 +38,11 @@ class ElapsedTimeFrame:
 
         start_frame = read_df(start_path)
         end_frame = read_df(end_path)
+
         if not len(start_frame) == len(end_frame):
             raise ValueError
         if not (start_frame.stamp == end_frame.stamp).all():
             raise ValueError
-
         if not (start_frame.Time == end_frame.Time).all():
             raise ValueError
         if not (start_frame.stamp == end_frame.stamp).all():
@@ -50,17 +50,17 @@ class ElapsedTimeFrame:
 
         start_frame.Time = pd.to_datetime(start_frame.Time, utc=True)
         end_frame.Time = pd.to_datetime(end_frame.Time, utc=True)
-        index = start_frame[start_frame.Time == start_frame.Time.iloc[-1] - timedelta(days=ElapsedTimeFrame.range_offset)].index[0]
+        et_index = start_frame[start_frame.Time == start_frame.Time.iloc[-1] - timedelta(days=ElapsedTimeFrame.range_offset)].index[0]
 
         init_velos = start_frame.Velocity_Major.to_numpy()
         final_velos = end_frame.Velocity_Major.to_numpy()
 
         self.frame = pd.DataFrame(data={'stamp': start_frame.stamp, 'Time': start_frame.Time})
-        self.frame.drop(self.frame.index[index:], inplace=True)
+        self.frame.drop(self.frame.index[et_index:], inplace=True)
 
         dist = ElapsedTimeFrame.distance(final_velos[1:], init_velos[:-1], speed, PresetGlobals.timestep / 3600)
         dist = np.insert(dist, 0, 0.0)  # distance uses an offset calculation VIx, VFx+1, need a zero at the beginning
-        self.frame[name] = [elapsed_time(i, dist, length) for i in range(index)]
+        self.frame[name] = [elapsed_time(i, dist, length) for i in range(et_index)]
 
 
 class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, arguments
@@ -69,7 +69,7 @@ class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, ar
     def execute_callback(self, result): return super().execute_callback(result)
     def error_callback(self, result): return super().error_callback(result)
 
-    def __init__(self, seg: Segment, speed):
+    def __init__(self, seg: Segment, speed: int):
         job_name = seg.name + '  ' + str(round(seg.length, 3)) + '  ' + str(speed)
         result_key = seg.name + ' ' + str(speed)
         start_path = seg.start.folder.joinpath(Waypoint.velocity_csv_name)
@@ -82,15 +82,14 @@ def edge_processing(route: Route, job_manager):
 
     for s in PresetGlobals.speeds:
         print(f'\nCalculating elapsed timesteps for edges at {s} kts')
-        speeds_file = route.folder.joinpath('elapsed_timesteps ' + str(s) + '.csv')
+        speeds_file = route.elapsed_times_filepath(s)
 
         if not print_file_exists(speeds_file):
             keys = [job_manager.submit_job(ElapsedTimeJob(seg, s)) for seg in route.segments]
             job_manager.wait()
 
             print(f'\nAggregating elapsed timesteps at {s} kts into a dataframe', flush=True)
-            frames = [job_manager.get_result(key).frame for key in keys]
-            elapsed_time_df = reduce(lambda left, right: pd.merge(left, right, on=['stamp', 'Time']), frames)
-            write_df(elapsed_time_df, speeds_file)
+            results = [job_manager.get_result(key) for key in keys]
+            elapsed_time_df = reduce(lambda left, right: pd.merge(left, right, on=['stamp', 'Time']), [r.frame for r in results])
             print_file_exists(write_df(elapsed_time_df, speeds_file))
-
+            del results
