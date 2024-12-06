@@ -82,7 +82,7 @@ def edge_processing(route: Route, job_manager):
 
     for s in PresetGlobals.speeds:
         print(f'\nCalculating elapsed timesteps for edges at {s} kts')
-        speeds_file = route.elapsed_times_filepath(s)
+        speeds_file = route.filepath('elapsed timesteps', s)
 
         if not print_file_exists(speeds_file):
             keys = [job_manager.submit_job(ElapsedTimeJob(seg, s)) for seg in route.segments]
