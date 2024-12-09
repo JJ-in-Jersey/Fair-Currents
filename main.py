@@ -1,12 +1,12 @@
 from argparse import ArgumentParser as argParser
 from pathlib import Path
 
-from tt_gpx.gpx import Route, Waypoint, Edge, EdgeNode, GpxFile
+from tt_gpx.gpx import Route, EdgeNode, GpxFile
 from tt_chrome_driver import chrome_driver
 from tt_job_manager.job_manager import JobManager
-from tt_globals.globals import Globals
+from tt_globals.globals import PresetGlobals
+from tt_noaa_data.noaa_data import StationDict
 
-from waypoint_processing import waypoint_processing
 from elapsed_time import edge_processing
 from transit_time import transit_time_processing
 
@@ -15,60 +15,36 @@ if __name__ == '__main__':
     # ---------- PARSE ARGUMENTS ----------
 
     ap = argParser()
-    ap.add_argument('project_name', type=str, help='name of transit window project')
     ap.add_argument('filepath', type=Path, help='path to gpx file')
-    ap.add_argument('year', type=int, help='calendar year for analysis')
-    ap.add_argument('-dd', '--delete_data', action='store_true')
-    ap.add_argument('-er', '--east_river', action='store_true')
-    ap.add_argument('-cdc', '--chesapeake_delaware_canal', action='store_true')
+    # ap.add_argument('-dd', '--delete_data', action='store_true')
+    # ap.add_argument('-er', '--east_river', action='store_true')
+    # ap.add_argument('-cdc', '--chesapeake_delaware_canal', action='store_true')
     args = vars(ap.parse_args())
 
-    # ---------- SET UP GLOBALS ----------
-
-    Globals.initialize_dates(args)
-    Globals.initialize_folders(args)
-    Globals.initialize_structures()
-    
-    Waypoint.waypoints_folder = Globals.WAYPOINTS_FOLDER
-    Edge.edges_folder = Globals.EDGES_FOLDER
 
     # ---------- ROUTE OBJECT ----------
 
+    station_dict = StationDict()
     gpx_file = GpxFile(args['filepath'])
+    route = Route(station_dict.dict, gpx_file.tree)
 
-    if gpx_file.type == Globals.TYPE['rte']:
-        route = Route(gpx_file.tree)
-    else:
-        route = None
-
-    route.location_name = args['filepath'].stem
-    route.location_code = args['project_name']
-
-    print(f'\nCalculating {gpx_file.type} {route.location_name}')
-    print(f'code {route.location_code}')
-    print(f'calendar year: {Globals.YEAR}')
-    print(f'start date: {Globals.FIRST_DAY_DATE}')
-    print(f'end date: {Globals.LAST_DAY_DATE}')
+    print(f'\nCalculating route {route.name}')
+    print(f'code {route.code}')
     print(f'total waypoints: {len(route.waypoints)}')
     print(f'total edge nodes: {len(list(filter(lambda w: isinstance(w, EdgeNode), route.waypoints)))}')
     print(f'total edges: {len(route.edges)}')
-    print(f'boat speeds: {Globals.BOAT_SPEEDS}')
-    print(f'length {round(route.edge_path.length, 1)} nm')
-    print(f'direction {route.edge_path.direction}')
-    print(f'heading {route.edge_path.route_heading}\n')
-
-    Globals.TRANSIT_TIMES_FOLDER.joinpath(str(route.edge_path.route_heading) + '.heading').touch()
+    print(f'boat speeds: {PresetGlobals.speeds}')
+    print(f'length {route.length} nm')
+    print(f'direction {route.direction}')
+    print(f'heading {route.heading}\n')
 
     # ---------- CHECK CHROME ----------
-    chrome_driver.check_driver()
-    if chrome_driver.installed_driver_version is None or chrome_driver.latest_stable_version > chrome_driver.installed_driver_version:
-        chrome_driver.install_stable_driver()
+    # chrome_driver.check_driver()
+    # if chrome_driver.installed_driver_version is None or chrome_driver.latest_stable_version > chrome_driver.installed_driver_version:
+    #     chrome_driver.install_stable_driver()
 
     # ---------- START MULTIPROCESSING ----------
     job_manager = JobManager()
-
-    # ---------- WAYPOINT PROCESSING ----------
-    waypoint_processing(route, job_manager)
 
     # ---------- EDGE PROCESSING ----------
     edge_processing(route, job_manager)
