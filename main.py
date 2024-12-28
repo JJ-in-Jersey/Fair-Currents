@@ -33,6 +33,8 @@ if __name__ == '__main__':
     print(f'total waypoints: {len(route.waypoints)}')
     print(f'total edge nodes: {len(list(filter(lambda w: isinstance(w, EdgeNode), route.waypoints)))}')
     print(f'total edges: {len(route.edges)}')
+    for segment in route.segments:
+        print(f'{segment.name}: {segment.node_list} {segment.length}')
     print(f'boat speeds: {PresetGlobals.speeds}')
     print(f'length {route.length} nm')
     print(f'direction {route.direction}')
