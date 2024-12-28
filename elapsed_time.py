@@ -70,8 +70,10 @@ class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, ar
     def error_callback(self, result): return super().error_callback(result)
 
     def __init__(self, seg: Segment, speed: int):
-        job_name = seg.name + '  ' + str(round(seg.length, 3)) + '  ' + str(speed)
-        result_key = seg.name + ' ' + str(speed)
+        # job_name = seg.name + '  ' + str(round(seg.length, 3)) + '  ' + str(speed)
+        job_name = f'{speed} {seg.name}'
+        # result_key = seg.name + ' ' + str(speed)
+        result_key = job_name
         start_path = seg.start.folder.joinpath(Waypoint.velocity_csv_name)
         end_path = seg.end.folder.joinpath(Waypoint.velocity_csv_name)
         arguments = tuple([start_path, end_path, seg.length, speed, seg.name])
