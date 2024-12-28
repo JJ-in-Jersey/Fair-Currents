@@ -45,8 +45,6 @@ class ElapsedTimeFrame:
             raise ValueError
         if not (start_frame.Time == end_frame.Time).all():
             raise ValueError
-        if not (start_frame.stamp == end_frame.stamp).all():
-            raise ValueError
 
         start_frame.Time = pd.to_datetime(start_frame.Time, utc=True)
         end_frame.Time = pd.to_datetime(end_frame.Time, utc=True)
@@ -70,12 +68,20 @@ class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, ar
     def error_callback(self, result): return super().error_callback(result)
 
     def __init__(self, seg: Segment, speed: int):
-        # job_name = seg.name + '  ' + str(round(seg.length, 3)) + '  ' + str(speed)
-        job_name = f'{speed} {seg.name}'
-        # result_key = seg.name + ' ' + str(speed)
-        result_key = job_name
         start_path = seg.start.folder.joinpath(Waypoint.velocity_csv_name)
         end_path = seg.end.folder.joinpath(Waypoint.velocity_csv_name)
+        if seg.start.prev_edge is None:
+            print(f'Checking terminal segment {seg.name}')
+            if not start_path.exists():
+                start_path = end_path
+            pass
+        if seg.end.next_edge is None:
+            print(f'Checking terminal segment {seg.name}')
+            if not end_path.exists():
+                end_path = start_path
+            pass
+        job_name = f'{speed} {seg.name}'
+        result_key = job_name
         arguments = tuple([start_path, end_path, seg.length, speed, seg.name])
         super().__init__(job_name, result_key, ElapsedTimeFrame, arguments)
 
@@ -88,6 +94,9 @@ def edge_processing(route: Route, job_manager):
 
         if not print_file_exists(speeds_file):
             keys = [job_manager.submit_job(ElapsedTimeJob(seg, s)) for seg in route.segments]
+            # for seg in route.segments:
+            #     job = ElapsedTimeJob(seg, s)
+            #     result = job.execute()
             job_manager.wait()
 
             print(f'\nAggregating elapsed timesteps at {s} kts into a dataframe', flush=True)

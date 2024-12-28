@@ -46,6 +46,7 @@ if __name__ == '__main__':
     #     chrome_driver.install_stable_driver()
 
     # ---------- START MULTIPROCESSING ----------
+    job_manager = None
     job_manager = JobManager()
 
     # ---------- EDGE PROCESSING ----------
