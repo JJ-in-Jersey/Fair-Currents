@@ -64,10 +64,10 @@ class MinimaFrame:
             median_stamp = df[df.t_time == df.min().t_time]['stamp'].median().astype(int)
             self.frame.at[i, 'start_utc'] = df.iloc[0].Time
             self.frame.at[i, 'end_utc'] = df.iloc[-1].Time
-            self.frame.at[i,'min_utc'] = df.iloc[abs(df.stamp - median_stamp).idxmin()].Time
-            self.frame.at[i,'start_tt'] = hours_mins(df.iloc[0].t_time * PresetGlobals.timestep)
+            self.frame.at[i, 'min_utc'] = df.iloc[abs(df.stamp - median_stamp).idxmin()].Time
+            self.frame.at[i, 'start_tt'] = hours_mins(df.iloc[0].t_time * PresetGlobals.timestep)
             self.frame.at[i, 'end_tt'] = hours_mins(df.iloc[-1].t_time * PresetGlobals.timestep)
-            self.frame.at[i,'min_tt'] = hours_mins(df.iloc[abs(df.stamp - median_stamp).idxmin()].t_time * PresetGlobals.timestep)
+            self.frame.at[i, 'min_tt'] = hours_mins(df.iloc[abs(df.stamp - median_stamp).idxmin()].t_time * PresetGlobals.timestep)
 
         self.frame.start_utc = pd.to_datetime(self.frame.start_utc, utc=True)
         self.frame.min_utc = pd.to_datetime(self.frame.min_utc, utc=True)
@@ -156,7 +156,7 @@ class TransitTimeDataframe:
             tt_index = ets_df[ets_df.Time == ets_df.Time.iloc[-1] - timedelta(days=TransitTimeDataframe.range_offset)].index[0]
             segment_columns = [col for col in ets_df.columns.to_list() if Segment.prefix in col]
             transit_timesteps_arr = [total_transit_time(row, ets_df, segment_columns) for row in range(tt_index)]
-            timesteps_frame = pd.DataFrame(data={'stamp': ets_df.stamp[:tt_index], 'Time':ets_df.Time[:tt_index], 't_time': transit_timesteps_arr})
+            timesteps_frame = pd.DataFrame(data={'stamp': ets_df.stamp[:tt_index], 'Time': ets_df.Time[:tt_index], 't_time': transit_timesteps_arr})
             print_file_exists(write_df(timesteps_frame, tts_path))
 
         minima_path = route.filepath('minima', speed)
