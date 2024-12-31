@@ -71,12 +71,12 @@ class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, ar
         start_path = seg.start.folder.joinpath(Waypoint.velocity_csv_name)
         end_path = seg.end.folder.joinpath(Waypoint.velocity_csv_name)
         if seg.start.prev_edge is None:
-            print(f'Checking terminal segment {seg.name}')
+            print(f'Checking initial segment {seg.name}')
             if not start_path.exists():
                 start_path = end_path
             pass
         if seg.end.next_edge is None:
-            print(f'Checking terminal segment {seg.name}')
+            print(f'Checking final segment {seg.name}')
             if not end_path.exists():
                 end_path = start_path
             pass
