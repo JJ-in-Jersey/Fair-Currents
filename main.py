@@ -2,7 +2,7 @@ from argparse import ArgumentParser as argParser
 from pathlib import Path
 
 from tt_gpx.gpx import Route, EdgeNode, GpxFile
-from tt_chrome_driver import chrome_driver
+# from tt_chrome_driver import chrome_driver
 from tt_job_manager.job_manager import JobManager
 from tt_globals.globals import PresetGlobals
 from tt_noaa_data.noaa_data import StationDict
@@ -54,6 +54,10 @@ if __name__ == '__main__':
 
     # ---------- TRANSIT TIMES ----------
     transit_time_processing(job_manager, route)
+
+    route.folder.joinpath(str(route.heading) + '.heading').touch()
+
+
 
     # # if args['east_river']:
     # #     print(f'\nEast River validation')
