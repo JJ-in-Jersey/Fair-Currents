@@ -68,18 +68,21 @@ class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, ar
     def error_callback(self, result): return super().error_callback(result)
 
     def __init__(self, seg: Segment, speed: int):
-        start_path = seg.start.folder.joinpath(Waypoint.velocity_csv_name)
-        end_path = seg.end.folder.joinpath(Waypoint.velocity_csv_name)
-        if seg.start.prev_edge is None:
-            print(f'Checking initial segment {seg.name}')
-            if not start_path.exists():
-                start_path = end_path
-            pass
-        if seg.end.next_edge is None:
-            print(f'Checking final segment {seg.name}')
-            if not end_path.exists():
-                end_path = start_path
-            pass
+
+        node = seg.start
+        node_path = node.folder.joinpath(Waypoint.velocity_csv_name)
+        while not node_path.exists():
+            node = node.next_edge.end
+            node_path = node.folder.joinpath(Waypoint.velocity_csv_name)
+        start_path = node_path
+
+        node = seg.end
+        node_path = node.folder.joinpath(Waypoint.velocity_csv_name)
+        while not node_path.exists():
+            node = node.prev_edge.start
+            node_path = node.folder.joinpath(Waypoint.velocity_csv_name)
+        end_path = node_path
+
         job_name = f'{speed} {seg.name}'
         result_key = job_name
         arguments = tuple([start_path, end_path, seg.length, speed, seg.name])
