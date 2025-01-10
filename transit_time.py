@@ -206,7 +206,6 @@ def transit_time_processing(job_manager, route: Route):
     print(f'\nAggregating transit times', flush=True)
     frames = [job_manager.get_result(key).frame for key in keys]
     transit_times_df = pd.concat(frames).reset_index(drop=True)
-    transit_times_df = transit_times_df.add_prefix(route.code + ' ')
     transit_times_df = transit_times_df.fillna("-")
 
     transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
