@@ -8,13 +8,18 @@ from tt_file_tools.file_tools import read_df, write_df, print_file_exists
 from tt_geometry.geometry import Arc
 from tt_job_manager.job_manager import Job
 from tt_date_time_tools.date_time_tools import hours_mins
-# from tt_globals.globals import Globals, PresetGlobals
 from tt_gpx.gpx import Route, Segment
 from tt_globals.globals import PresetGlobals
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=UserWarning)
+
+
+class IndexGreaterThanThree(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
 
 
 def none_row(row, df):
@@ -47,7 +52,8 @@ class MinimaFrame:
 
         if not print_file_exists(savgol_path):
             frame = read_df(transit_timesteps_path)
-            frame['midline'] = savgol_filter(frame.t_time, 50000, 1).round()
+            # noinspection PyUnresolvedReferences
+            frame['midline'] = savgol_filter(frame.t_time, 1100, 1).round()
             frame.midline = frame.midline.astype(int)
             frame['TF'] = frame.t_time.lt(frame['midline'])  # Above midline = False,  below midline = True
             frame = frame.drop(frame[frame.t_time == frame['midline']].index).reset_index(drop=True)  # remove values = midline
@@ -106,6 +112,9 @@ def index_arc_df(frame):
             new_dict.update({'idx': 3, 'date': last_row_dict['date']})
             output_frame.loc[len(output_frame)] = new_dict
 
+    if len(output_frame[output_frame.idx > 3]):
+        raise IndexGreaterThanThree('Index greater than 3 for speed ' + str(frame.speed[0]))
+
     return output_frame
 
 
@@ -126,15 +135,15 @@ def create_arcs(minima_path: Path, speed: int):
     for d in [a.arc_dict for a in all_good_arcs]:
         arcs_df.loc[len(arcs_df)] = d
 
+    # noinspection PyTypeChecker
     arcs_df.insert(loc=0, column='date', value=None)
     arcs_df['date'] = arcs_df.start_eastern.apply(lambda x: x.date())
+    arcs_df['speed'] = speed
 
     arcs_df.sort_values(by=['start_eastern'], inplace=True)
     arcs_df = index_arc_df(arcs_df)
     arcs_df = arcs_df[arcs_df.date <= last_day.date()]
     arcs_df = arcs_df[arcs_df.date >= first_day.date()]
-
-    arcs_df['speed'] = speed
 
     return arcs_df
 
@@ -181,7 +190,6 @@ class TransitTimeJob(Job):  # super -> job name, result key, function/object, ar
     def __init__(self, speed: int, route: Route):
         job_name = 'transit_time' + ' ' + str(speed)
         result_key = speed
-        # arguments = tuple([speed, et_path, folder, folder.joinpath(route.tt_csv_name), folder.joinpath(route.rtt_csv_name)])
         arguments = tuple([speed, route])
         super().__init__(job_name, result_key, TransitTimeDataframe, arguments)
 
@@ -201,8 +209,5 @@ def transit_time_processing(job_manager, route: Route):
     transit_times_df = transit_times_df.add_prefix(route.code + ' ')
     transit_times_df = transit_times_df.fillna("-")
 
-    # row_counts = arc_df.count(axis=1)
-    # arc_df = arc_df[row_counts > 3]
     transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
-
     print_file_exists(write_df(transit_times_df, transit_times_path))
