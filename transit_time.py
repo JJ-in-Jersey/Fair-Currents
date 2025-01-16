@@ -109,7 +109,7 @@ def index_arc_df(frame):
         if len(date_arr_dict[key]) == 2:
             last_row_dict = output_frame.loc[len(output_frame) - 1].to_dict()
             new_dict = {key: None for key in last_row_dict}
-            new_dict.update({'idx': 3, 'date': last_row_dict['date']})
+            new_dict.update({'idx': 3, 'date': last_row_dict['date'], 'speed': last_row_dict['speed']})
             output_frame.loc[len(output_frame)] = new_dict
 
     if len(output_frame[output_frame.idx > 3]):
