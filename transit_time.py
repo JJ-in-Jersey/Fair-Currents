@@ -15,6 +15,8 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 warnings.simplefilter(action='ignore', category=UserWarning)
 
+pd.options.mode.copy_on_write = True
+
 
 class IndexGreaterThanThree(Exception):
     def __init__(self, message: str):
@@ -91,9 +93,6 @@ class MinimaFrame:
         self.frame.min_round = self.frame.min_round.dt.tz_convert(tz='US/Eastern')
         self.frame.end_round = self.frame.end_round.dt.tz_convert(tz='US/Eastern')
 
-        for col in MinimaFrame.frame_time_columns:
-            self.frame['str_' + col] = self.frame[col].dt.strftime("%I:%M %p")
-
 
 def index_arc_df(frame):
     output_frame = pd.DataFrame(columns=['idx'] + frame.columns.to_list())
@@ -144,6 +143,12 @@ def create_arcs(minima_path: Path, speed: int):
     arcs_df = index_arc_df(arcs_df)
     arcs_df = arcs_df[arcs_df.date <= last_day.date()]
     arcs_df = arcs_df[arcs_df.date >= first_day.date()]
+    arcs_df.reset_index(drop=True, inplace=True)
+
+    for col in ['start_round', 'min_round', 'end_round']:
+        arcs_df['str_' + col] = None
+        for row in range(len(arcs_df)):
+            arcs_df.loc[row, 'str_' + col] = arcs_df.loc[row, col].strftime("%I:%M %p") if arcs_df.loc[row, col] is not None else None
 
     return arcs_df
 
