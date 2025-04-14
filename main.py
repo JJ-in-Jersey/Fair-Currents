@@ -28,6 +28,10 @@ if __name__ == '__main__':
     gpx_file = GpxFile(args['filepath'])
     route = Route(station_dict.dict, gpx_file.tree)
 
+    print(f'\nParameters')
+    print(f'savgol window size {PresetGlobals.savgol_size}')
+    print(f'savgol polynomial order {PresetGlobals.savgol_order}')
+
     print(f'\nCalculating route {route.name}')
     print(f'code {route.code}')
     print(f'total waypoints: {len(route.waypoints)}')
