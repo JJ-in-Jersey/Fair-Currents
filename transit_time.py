@@ -55,7 +55,8 @@ class MinimaFrame:
         if not print_file_exists(savgol_path):
             frame = read_df(transit_timesteps_path)
             # noinspection PyUnresolvedReferences
-            frame['midline'] = savgol_filter(frame.t_time, 1100, 1).round()
+            # frame['midline'] = savgol_filter(frame.t_time, 1100, 1).round()
+            frame['midline'] = savgol_filter(frame.t_time, PresetGlobals.savgol_size, PresetGlobals.savgol_order).round()
             frame.midline = frame.midline.astype(int)
             frame['TF'] = frame.t_time.lt(frame['midline'])  # Above midline = False,  below midline = True
             frame = frame.drop(frame[frame.t_time == frame['midline']].index).reset_index(drop=True)  # remove values = midline
