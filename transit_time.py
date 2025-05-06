@@ -154,9 +154,7 @@ def create_arcs(minima_path: Path, speed: int):
     return arcs_df
 
 
-class TransitTimeDataframe:
-
-    range_offset = 7
+class TransitTimeStepsFrame:
 
     def __init__(self, speed: int, route: Route):
 
@@ -168,49 +166,117 @@ class TransitTimeDataframe:
         if not print_file_exists(tts_path):
             ets_df = read_df(ets_path)
             ets_df.Time = pd.to_datetime(ets_df.Time, utc=True)
-            tt_index = ets_df[ets_df.Time == ets_df.Time.iloc[-1] - timedelta(days=TransitTimeDataframe.range_offset)].index[0]
+            tt_index = ets_df[ets_df.Time == ets_df.Time.iloc[-1] - timedelta(days=7)].index[0]
             segment_columns = [col for col in ets_df.columns.to_list() if Segment.prefix in col]
             transit_timesteps_arr = [total_transit_time(row, ets_df, segment_columns) for row in range(tt_index)]
-            timesteps_frame = pd.DataFrame(data={'stamp': ets_df.stamp[:tt_index], 'Time': ets_df.Time[:tt_index], 't_time': transit_timesteps_arr})
-            print_file_exists(write_df(timesteps_frame, tts_path))
+            self.frame = pd.DataFrame(data={'stamp': ets_df.stamp[:tt_index], 'Time': ets_df.Time[:tt_index], 't_time': transit_timesteps_arr})
+            print_file_exists(write_df(self.frame, tts_path))
+
+
+class TransitTimeMinimaFrame:
+
+    def __init__(self, speed: int, route: Route):
+
+        tts_path = route.filepath('transit timesteps', speed)
+        if not print_file_exists(tts_path):
+            raise FileExistsError(tts_path)
 
         minima_path = route.filepath('minima', speed)
         if not print_file_exists(minima_path):
-            minima_frame = MinimaFrame(tts_path, route.filepath('savgol', speed)).frame
-            print_file_exists(write_df(minima_frame, minima_path))
+            self.frame = MinimaFrame(tts_path, route.filepath('savgol', speed)).frame
+            print_file_exists(write_df(self.frame, minima_path))
 
-        self.path = route.filepath('arcs', speed)
-        if not print_file_exists(self.path):
+
+class TransitTimeArcsFrame:
+
+    def __init__(self, speed: int, route: Route):
+
+        minima_path = route.filepath('minima', speed)
+        if not print_file_exists(minima_path):
+            raise FileExistsError(minima_path)
+
+        arcs_path = route.filepath('arcs', speed)
+        if not print_file_exists(arcs_path):
             self.frame = create_arcs(minima_path, speed)
-            print_file_exists(write_df(self.frame, self.path))
-        else:
-            self.frame = read_df(self.path)
+            print_file_exists(write_df(self.frame, arcs_path))
 
+# class TransitTimeJob(Job):  # super -> job name, result key, function/object, arguments
+#
+#     def execute(self): return super().execute()
+#     def execute_callback(self, result): return super().execute_callback(result)
+#     def error_callback(self, result): return super().error_callback(result)
+#
+#     def __init__(self, speed: int, route: Route):
+#         job_name = 'transit_time' + ' ' + str(speed)
+#         result_key = speed
+#         arguments = tuple([speed, route])
+#         super().__init__(job_name, result_key, TransitTimeDataframe, arguments)
 
-class TransitTimeJob(Job):  # super -> job name, result key, function/object, arguments
+class TransitTimeStepsJob(Job):  # super -> job name, result key, function/object, arguments
 
     def execute(self): return super().execute()
     def execute_callback(self, result): return super().execute_callback(result)
     def error_callback(self, result): return super().error_callback(result)
 
     def __init__(self, speed: int, route: Route):
-        job_name = 'transit_time' + ' ' + str(speed)
+        job_name = 'transit times' + ' ' + str(speed)
         result_key = speed
         arguments = tuple([speed, route])
-        super().__init__(job_name, result_key, TransitTimeDataframe, arguments)
+        super().__init__(job_name, result_key, TransitTimeStepsFrame, arguments)
+
+
+class TransitTimeMinimaJob(Job):  # super -> job name, result key, function/object, arguments
+
+    def execute(self): return super().execute()
+    def execute_callback(self, result): return super().execute_callback(result)
+    def error_callback(self, result): return super().error_callback(result)
+
+    def __init__(self, speed: int, route: Route):
+        job_name = 'minima' + ' ' + str(speed)
+        result_key = speed
+        arguments = tuple([speed, route])
+        super().__init__(job_name, result_key, TransitTimeMinimaFrame, arguments)
+
+
+class TransitTimeArcsJob(Job):  # super -> job name, result key, function/object, arguments
+
+    def execute(self): return super().execute()
+    def execute_callback(self, result): return super().execute_callback(result)
+    def error_callback(self, result): return super().error_callback(result)
+
+    def __init__(self, speed: int, route: Route):
+        job_name = 'arcs' + ' ' + str(speed)
+        result_key = speed
+        arguments = tuple([speed, route])
+        super().__init__(job_name, result_key, TransitTimeArcsFrame, arguments)
 
 
 def transit_time_processing(job_manager, route: Route):
 
-    print(f'\nCalculating transit timesteps')
-    keys = [job_manager.submit_job(TransitTimeJob(speed, route)) for speed in PresetGlobals.speeds]
+    # print(f'\nCalculating transit timesteps')
+    # # keys = [job_manager.submit_job(TransitTimeJob(speed, route)) for speed in PresetGlobals.speeds]
     # for speed in PresetGlobals.speeds:
     #     job = TransitTimeJob(speed, route)
     #     result = job.execute()
+    # # job_manager.wait()
+
+    print(f'\nCalculating transit times')
+    for speed in PresetGlobals.speeds:
+        job_manager.submit_job(TransitTimeStepsJob(speed, route))
+    job_manager.wait()
+
+    print(f'\nCalculating transit minima')
+    for speed in PresetGlobals.speeds:
+        job_manager.submit_job(TransitTimeMinimaJob(speed, route))
+    job_manager.wait()
+
+    print(f'\nCalculating transit arcs')
+    for speed in PresetGlobals.speeds:
+        job_manager.submit_job(TransitTimeArcsJob(speed, route))
     job_manager.wait()
 
     print(f'\nAggregating transit times', flush=True)
-    frames = [job_manager.get_result(key).frame for key in keys]
+    frames = [read_df(route.filepath('arcs', speed)) for speed in PresetGlobals.speeds]
     transit_times_df = pd.concat(frames).reset_index(drop=True)
     transit_times_df = transit_times_df.fillna("-")
 
