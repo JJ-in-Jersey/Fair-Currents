@@ -7,7 +7,7 @@ from functools import reduce
 from tt_dataframe.dataframe import DataFrame
 from tt_gpx.gpx import Route, Waypoint, Segment
 from tt_job_manager.job_manager import Job
-from tt_globals.globals import PresetGlobals
+from tt_globals.globals import PresetGlobals as pg
 from tt_file_tools.file_tools import print_file_exists
 
 
@@ -47,7 +47,7 @@ class ElapsedTimeFrame(DataFrame):
         if not (start_frame.Time == end_frame.Time).all():
             raise ValueError
 
-        dist = self.distance(end_frame.Velocity_Major.to_numpy()[1:], start_frame.Velocity_Major.to_numpy()[:-1], speed, PresetGlobals.timestep / 3600)
+        dist = self.distance(end_frame.Velocity_Major.to_numpy()[1:], start_frame.Velocity_Major.to_numpy()[:-1], speed, pg.timestep / 3600)
         dist = dist * np.sign(speed)  # make sure distances are positive in the direction of the current
         dist_limit = len(dist) -1 - np.where(np.cumsum(dist[::-1]) > length)[0][0]  # don't run off the end of the array
         timesteps = [self.elapsed_time(dist[i:], length) for i in range(dist_limit)]
@@ -89,7 +89,7 @@ class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, ar
 
 def edge_processing(route: Route, job_manager):
 
-    for s in PresetGlobals.speeds:
+    for s in pg.speeds:
         print(f'\nCalculating elapsed timesteps for edges at {s} kts')
 
         if not print_file_exists(route.filepath('elapsed timesteps', s)):
