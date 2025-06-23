@@ -1,43 +1,44 @@
 import numpy as np
-import pandas as pd
+from pandas import merge, to_datetime
 from pathlib import Path
 from datetime import timedelta
 from functools import reduce
 
+from tt_dataframe.dataframe import DataFrame
 from tt_gpx.gpx import Route, Waypoint, Segment
 from tt_job_manager.job_manager import Job
 from tt_globals.globals import PresetGlobals
-from tt_file_tools.file_tools import print_file_exists, read_df, write_df
+from tt_file_tools.file_tools import print_file_exists
 
 
-#  Elapsed times are reported in number of timesteps
-def elapsed_time(distance_start_index, distances, length):  # returns number of timesteps
-    distance_index = distance_start_index + 1  # distance at departure time is 0
-    count = total = 0
-    not_there_yet = True
-    while not_there_yet:
-        total += abs(distances[distance_index])
-        count += 1
-        distance_index += 1
-        not_there_yet = True if length > 0 and total < length else False
-    return count  # count = number of time steps
-
-
-class ElapsedTimeFrame:
-
-    range_offset = 7
+class ElapsedTimeFrame(DataFrame):
 
     @staticmethod
     def distance(water_vf, water_vi, boat_speed, ts_in_hr):
-        return ((water_vf + water_vi) / 2 + boat_speed) * ts_in_hr  # distance is nm
+            dist = ((water_vf + water_vi) / 2 + boat_speed) * ts_in_hr  # distance is nm
+            # if np.all(np.sign(dist) == np.sign(boat_speed)):
+            #     return abs(dist)
+            # else:
+            #     raise ValueError
+            return dist
+
+    #  Elapsed times are reported in number of timesteps
+    @staticmethod
+    def elapsed_time(distances, length):
+        cumsum = 0
+        index = 0
+        while cumsum < length:
+            cumsum += distances[index]
+            index += 1
+        return index
 
     def __init__(self, start_path: Path, end_path: Path, length: float, speed: int, name: str):
 
         if not start_path.exists() or not end_path.exists():
             raise FileExistsError
 
-        start_frame = read_df(start_path)
-        end_frame = read_df(end_path)
+        start_frame = DataFrame(csv_source=start_path)
+        end_frame = DataFrame(csv_source=end_path)
 
         if not len(start_frame) == len(end_frame):
             raise ValueError
@@ -46,19 +47,16 @@ class ElapsedTimeFrame:
         if not (start_frame.Time == end_frame.Time).all():
             raise ValueError
 
-        start_frame.Time = pd.to_datetime(start_frame.Time, utc=True)
-        end_frame.Time = pd.to_datetime(end_frame.Time, utc=True)
-        et_index = start_frame[start_frame.Time == start_frame.Time.iloc[-1] - timedelta(days=ElapsedTimeFrame.range_offset)].index[0]
+        dist = self.distance(end_frame.Velocity_Major.to_numpy()[1:], start_frame.Velocity_Major.to_numpy()[:-1], speed, PresetGlobals.timestep / 3600)
+        dist = dist * np.sign(speed)  # make sure distances are positive in the direction of the current
+        dist_limit = len(dist) -1 - np.where(np.cumsum(dist[::-1]) > length)[0][0]  # don't run off the end of the array
+        timesteps = [self.elapsed_time(dist[i:], length) for i in range(dist_limit)]
+        timesteps.insert(0,0)  # initial time 0 has no displacement
 
-        init_velos = start_frame.Velocity_Major.to_numpy()
-        final_velos = end_frame.Velocity_Major.to_numpy()
-
-        self.frame = pd.DataFrame(data={'stamp': start_frame.stamp, 'Time': start_frame.Time})
-        self.frame.drop(self.frame.index[et_index:], inplace=True)
-
-        dist = ElapsedTimeFrame.distance(final_velos[1:], init_velos[:-1], speed, PresetGlobals.timestep / 3600)
-        dist = np.insert(dist, 0, 0.0)  # distance uses an offset calculation VIx, VFx+1, need a zero at the beginning
-        self.frame[name] = [elapsed_time(i, dist, length) for i in range(et_index)]
+        frame = DataFrame(data={'stamp': start_frame.stamp, 'Time': to_datetime(start_frame.Time, utc=True)})
+        frame = frame.loc[:dist_limit]
+        frame[name] = timesteps
+        super().__init__(data=frame)
 
 
 class ElapsedTimeJob(Job):  # super -> job name, result key, function/object, arguments
@@ -93,9 +91,8 @@ def edge_processing(route: Route, job_manager):
 
     for s in PresetGlobals.speeds:
         print(f'\nCalculating elapsed timesteps for edges at {s} kts')
-        speeds_file = route.filepath('elapsed timesteps', s)
 
-        if not print_file_exists(speeds_file):
+        if not print_file_exists(route.filepath('elapsed timesteps', s)):
             keys = [job_manager.submit_job(ElapsedTimeJob(seg, s)) for seg in route.segments]
             # for seg in route.segments:
             #     job = ElapsedTimeJob(seg, s)
@@ -103,7 +100,6 @@ def edge_processing(route: Route, job_manager):
             job_manager.wait()
 
             print(f'\nAggregating elapsed timesteps at {s} kts into a dataframe', flush=True)
-            results = [job_manager.get_result(key) for key in keys]
-            elapsed_time_df = reduce(lambda left, right: pd.merge(left, right, on=['stamp', 'Time']), [r.frame for r in results])
-            print_file_exists(write_df(elapsed_time_df, speeds_file))
-            del results
+            result_frames = [job_manager.get_result(key) for key in keys]
+            elapsed_time_df = reduce(lambda left, right: merge(left, right, on=['stamp', 'Time']), result_frames)
+            print_file_exists(elapsed_time_df.write(route.filepath('elapsed timesteps', s)))
