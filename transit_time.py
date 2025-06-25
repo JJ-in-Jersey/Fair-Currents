@@ -1,42 +1,18 @@
-import pandas as pd
 from scipy.signal import savgol_filter
 from datetime import timedelta
 from dateparser import parse as parsedate
 from pathlib import Path
+from pandas import concat, to_datetime, Series
+from numpy import ndarray
 
-from tt_file_tools.file_tools import read_df, write_df, print_file_exists
+from tt_dataframe.dataframe import DataFrame
+from tt_file_tools.file_tools import print_file_exists
 from tt_geometry.geometry import Arc
 from tt_job_manager.job_manager import Job
 from tt_date_time_tools.date_time_tools import hours_mins
 from tt_gpx.gpx import Route, Segment
-from tt_globals.globals import PresetGlobals
-
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=UserWarning)
-
-pd.options.mode.copy_on_write = True
-
-
-class IndexGreaterThanThree(Exception):
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(self.message)
-
-
-def none_row(row, df):
-    for c in range(len(df.columns)):
-        df.iloc[row, c] = None
-
-
-def total_transit_time(init_row, d_frame, cols):
-    row = init_row
-    tt = 0
-    for col in cols:
-        val = d_frame.at[row, col]
-        tt += val
-        row += val
-    return tt
+from tt_globals.globals import PresetGlobals as pg
+from tt_exceptions.exceptions import IndexGreaterThanThree
 
 
 class MinimaFrame:
@@ -50,22 +26,21 @@ class MinimaFrame:
 
     def __init__(self, transit_timesteps_path: Path, savgol_path: Path):
 
-        self.frame = pd.DataFrame(columns=MinimaFrame.frame_time_columns + MinimaFrame.frame_tts_columns)
+        self.frame = DataFrame(columns=MinimaFrame.frame_time_columns + MinimaFrame.frame_tts_columns)
 
         if not print_file_exists(savgol_path):
-            frame = read_df(transit_timesteps_path)
-            # noinspection PyUnresolvedReferences
-            # frame['midline'] = savgol_filter(frame.t_time, 1100, 1).round()
-            frame['midline'] = savgol_filter(frame.t_time, PresetGlobals.savgol_size, PresetGlobals.savgol_order).round()
-            frame.midline = frame.midline.astype(int)
+            frame = DataFrame(csv_source=transit_timesteps_path)
+            frame['test'] = savgol_filter(frame.t_time, pg.savgol_size, pg.savgol_order).round().astype('int')
+            frame['midline'] = savgol_filter(frame.t_time, pg.savgol_size, pg.savgol_order).round()
+            frame.midline = frame.midline.astype('int')
             frame['TF'] = frame.t_time.lt(frame['midline'])  # Above midline = False,  below midline = True
             frame = frame.drop(frame[frame.t_time == frame['midline']].index).reset_index(drop=True)  # remove values = midline
             frame['block'] = (frame['TF'] != frame['TF'].shift(1)).cumsum()  # index the blocks of True and False
-            print_file_exists(write_df(frame, savgol_path))
+            print_file_exists(frame.write(savgol_path))
         else:
-            frame = read_df(savgol_path)
+            frame = DataFrame(csv_source=savgol_path)
 
-        # create a list of minima blocks (TF = True, below midline) and larger than the noise threshold
+        # create a list of minima frames (TF = True, below midline) and larger than the noise threshold
         blocks = [df.reset_index(drop=True).drop(labels=['TF', 'block', 'midline'], axis=1)
                   for index, df in frame.groupby('block') if df['TF'].any() and len(df) > MinimaFrame.noise_threshold]
 
@@ -74,13 +49,13 @@ class MinimaFrame:
             self.frame.at[i, 'start_utc'] = df.iloc[0].Time
             self.frame.at[i, 'end_utc'] = df.iloc[-1].Time
             self.frame.at[i, 'min_utc'] = df.iloc[abs(df.stamp - median_stamp).idxmin()].Time
-            self.frame.at[i, 'start_tt'] = hours_mins(df.iloc[0].t_time * PresetGlobals.timestep)
-            self.frame.at[i, 'end_tt'] = hours_mins(df.iloc[-1].t_time * PresetGlobals.timestep)
-            self.frame.at[i, 'min_tt'] = hours_mins(df.iloc[abs(df.stamp - median_stamp).idxmin()].t_time * PresetGlobals.timestep)
+            self.frame.at[i, 'start_tt'] = hours_mins(df.iloc[0].t_time * pg.timestep)
+            self.frame.at[i, 'end_tt'] = hours_mins(df.iloc[-1].t_time * pg.timestep)
+            self.frame.at[i, 'min_tt'] = hours_mins(df.iloc[abs(df.stamp - median_stamp).idxmin()].t_time * pg.timestep)
 
-        self.frame.start_utc = pd.to_datetime(self.frame.start_utc, utc=True)
-        self.frame.min_utc = pd.to_datetime(self.frame.min_utc, utc=True)
-        self.frame.end_utc = pd.to_datetime(self.frame.end_utc, utc=True)
+        self.frame.start_utc =  to_datetime(self.frame.start_utc, utc=True)
+        self.frame.min_utc = to_datetime(self.frame.min_utc, utc=True)
+        self.frame.end_utc = to_datetime(self.frame.end_utc, utc=True)
 
         self.frame.start_eastern = self.frame.start_utc.dt.tz_convert(tz='US/Eastern')
         self.frame.min_eastern = self.frame.min_utc.dt.tz_convert(tz='US/Eastern')
@@ -91,12 +66,13 @@ class MinimaFrame:
         self.frame.end_round = self.frame.end_utc.dt.round('15min')
 
         self.frame.start_round = self.frame.start_round.dt.tz_convert(tz='US/Eastern')
+        self.frame['srutc'] = self.frame.start_utc.dt.tz_convert(tz='US/Eastern').round('15min')
         self.frame.min_round = self.frame.min_round.dt.tz_convert(tz='US/Eastern')
         self.frame.end_round = self.frame.end_round.dt.tz_convert(tz='US/Eastern')
 
 
 def index_arc_df(frame):
-    output_frame = pd.DataFrame(columns=['idx'] + frame.columns.to_list())
+    output_frame = DataFrame(columns=['idx'] + frame.columns.to_list())
 
     date_arr_dict = {key: [] for key in sorted(list(set(frame['date'])))}
 
@@ -121,8 +97,8 @@ def index_arc_df(frame):
 def create_arcs(minima_path: Path, speed: int):
     minima_frame = read_df(minima_path)
     for col in MinimaFrame.frame_time_columns:
-        minima_frame[col] = pd.to_datetime(minima_frame[col])
-    start_year = pd.to_datetime(minima_frame.start_eastern[0]).year
+        minima_frame[col] = to_datetime(minima_frame[col])
+    start_year = to_datetime(minima_frame.start_eastern[0]).year
     first_day = parsedate(Route.template_dict['first_day'].substitute({'year': start_year}))
     last_day = parsedate(Route.template_dict['last_day'].substitute({'year': start_year+2}))
 
@@ -131,7 +107,7 @@ def create_arcs(minima_path: Path, speed: int):
     all_arcs = arcs + next_day_arcs
     all_good_arcs = [arc for arc in all_arcs if not arc.zero_angle]
 
-    arcs_df = pd.DataFrame(columns=Arc.columns)
+    arcs_df = DataFrame(columns=Arc.columns)
     for d in [a.arc_dict for a in all_good_arcs]:
         arcs_df.loc[len(arcs_df)] = d
 
@@ -154,23 +130,44 @@ def create_arcs(minima_path: Path, speed: int):
     return arcs_df
 
 
-class TransitTimeStepsFrame:
+class TimeStepsFrame(DataFrame):
+
+    @staticmethod
+    def total_transit_timesteps(init_row: int, ets_values: ndarray, array_indices: list):
+
+        max_row = len(ets_values) - 1
+        transit_time = 0
+        for idx in array_indices:
+            row = int(transit_time) + init_row
+            if row > max_row:
+                break
+            transit_time += ets_values[row, idx]
+        return transit_time
+
 
     def __init__(self, speed: int, route: Route):
 
         ets_path = route.filepath('elapsed timesteps', speed)
-        if not print_file_exists(ets_path):
+        tts_path = route.filepath('transit timesteps', speed)
+        if not ets_path.exists():
             raise FileExistsError(ets_path)
 
-        tts_path = route.filepath('transit timesteps', speed)
-        if not print_file_exists(tts_path):
-            ets_df = read_df(ets_path)
-            ets_df.Time = pd.to_datetime(ets_df.Time, utc=True)
-            tt_index = ets_df[ets_df.Time == ets_df.Time.iloc[-1] - timedelta(days=7)].index[0]
-            segment_columns = [col for col in ets_df.columns.to_list() if Segment.prefix in col]
-            transit_timesteps_arr = [total_transit_time(row, ets_df, segment_columns) for row in range(tt_index)]
-            self.frame = pd.DataFrame(data={'stamp': ets_df.stamp[:tt_index], 'Time': ets_df.Time[:tt_index], 't_time': transit_timesteps_arr})
-            print_file_exists(write_df(self.frame, tts_path))
+        if not tts_path.exists():
+            frame = DataFrame(csv_source=ets_path)
+            frame.Time = to_datetime(frame.Time, utc=True)
+
+            # pass values and indices to improve performance
+            indices = [frame.columns.get_loc(c) for c in frame.columns.to_list() if Segment.prefix in c]
+            values = frame.values
+            transit_timesteps_arr = [self.total_transit_timesteps(row, values, indices) for row in range(len(frame))]
+
+            frame.drop(frame.columns[indices], axis=1, inplace=True)
+            frame['t_time'] = Series(transit_timesteps_arr)
+            frame.write(tts_path)
+        else:
+            frame = DataFrame(csv_source=tts_path)
+
+        super().__init__(data=frame)
 
 
 class TransitTimeMinimaFrame:
@@ -212,7 +209,7 @@ class TransitTimeArcsFrame:
 #         arguments = tuple([speed, route])
 #         super().__init__(job_name, result_key, TransitTimeDataframe, arguments)
 
-class TransitTimeStepsJob(Job):  # super -> job name, result key, function/object, arguments
+class TimeStepsJob(Job):  # super -> job name, result key, function/object, arguments
 
     def execute(self): return super().execute()
     def execute_callback(self, result): return super().execute_callback(result)
@@ -222,7 +219,7 @@ class TransitTimeStepsJob(Job):  # super -> job name, result key, function/objec
         job_name = 'transit times' + ' ' + str(speed)
         result_key = speed
         arguments = tuple([speed, route])
-        super().__init__(job_name, result_key, TransitTimeStepsFrame, arguments)
+        super().__init__(job_name, result_key, TimeStepsFrame, arguments)
 
 
 class TransitTimeMinimaJob(Job):  # super -> job name, result key, function/object, arguments
@@ -255,30 +252,30 @@ def transit_time_processing(job_manager, route: Route):
 
     # print(f'\nCalculating transit timesteps')
     # # keys = [job_manager.submit_job(TransitTimeJob(speed, route)) for speed in PresetGlobals.speeds]
-    # for speed in PresetGlobals.speeds:
+    # for speed in pg.speeds:
     #     job = TransitTimeJob(speed, route)
     #     result = job.execute()
     # # job_manager.wait()
 
     print(f'\nCalculating transit times')
-    for speed in PresetGlobals.speeds:
-        job_manager.submit_job(TransitTimeStepsJob(speed, route))
+    for speed in pg.speeds:
+        job_manager.submit_job(TimeStepsJob(speed, route))
     job_manager.wait()
 
     print(f'\nCalculating transit minima')
-    for speed in PresetGlobals.speeds:
+    for speed in pg.speeds:
         job_manager.submit_job(TransitTimeMinimaJob(speed, route))
     job_manager.wait()
 
     print(f'\nCalculating transit arcs')
-    for speed in PresetGlobals.speeds:
+    for speed in pg.speeds:
         job_manager.submit_job(TransitTimeArcsJob(speed, route))
     job_manager.wait()
 
     print(f'\nAggregating transit times', flush=True)
-    frames = [read_df(route.filepath('arcs', speed)) for speed in PresetGlobals.speeds]
-    transit_times_df = pd.concat(frames).reset_index(drop=True)
+    frames = [DataFrame(csv_source=route.filepath('arcs', speed)) for speed in pg.speeds]
+    transit_times_df = concat(frames).reset_index(drop=True)
     transit_times_df = transit_times_df.fillna("-")
 
     transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
-    print_file_exists(write_df(transit_times_df, transit_times_path))
+    print_file_exists(transit_times_df.write(transit_times_path))
