@@ -7,7 +7,7 @@ from tt_globals.globals import PresetGlobals
 from tt_noaa_data.noaa_data import StationDict
 
 from elapsed_time import edge_processing
-from transit_time import transit_time_processing
+from transit_time import transit_time_processing, SavGolFrame
 
 if __name__ == '__main__':
 
@@ -22,8 +22,8 @@ if __name__ == '__main__':
     route = Route(station_dict, gpx_file.tree)
 
     print(f'\nParameters')
-    print(f'savgol window size {PresetGlobals.savgol_size}')
-    print(f'savgol polynomial order {PresetGlobals.savgol_order}')
+    print(f'savgol window size {SavGolFrame.savgol_size}')
+    print(f'savgol polynomial order {SavGolFrame.savgol_order}')
 
     print(f'\nCalculating route {route.name}')
     print(f'code {route.code}')
