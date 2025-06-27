@@ -128,7 +128,6 @@ class MinimaFrame(DataFrame):
             frame['end_eastern_round'] = to_datetime(frame.end_utc, utc=True).dt.tz_convert('US/Eastern').round('15min')
 
             frame.drop(['start_utc', 'min_utc', 'end_utc'], axis=1, inplace=True)
-
             frame.write(minima_path)
             super().__init__(data=frame)
 
@@ -218,9 +217,6 @@ class TransitTimeArcsFrame:
         if not print_file_exists(arcs_path):
             self.frame = create_arcs(minima_path, speed)
             print_file_exists(write_df(self.frame, arcs_path))
-
-
-
 
 
 class TransitTimeArcsJob(Job):  # super -> job name, result key, function/object, arguments
