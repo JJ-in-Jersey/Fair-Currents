@@ -15,60 +15,136 @@ from tt_globals.globals import PresetGlobals as pg
 from tt_exceptions.exceptions import IndexGreaterThanThree
 
 
-class MinimaFrame:
+class TimeStepsFrame(DataFrame):
 
-    frame_time_columns = ['start_utc', 'start_eastern', 'start_round',
-                          'min_utc', 'min_eastern', 'min_round',
-                          'end_utc', 'end_eastern', 'end_round']
-    frame_tts_columns = ['start_tt', 'min_tt', 'end_tt']
+    @staticmethod
+    def total_transit_timesteps(init_row: int, ets_values: ndarray, array_indices: list):
+        max_row = len(ets_values) - 1
+        transit_time = 0
+        for idx in array_indices:
+            row = int(transit_time) + init_row
+            if row > max_row:
+                break
+            transit_time += ets_values[row, idx]
+        return transit_time
+
+    def __init__(self, speed: int, route: Route):
+
+        tts_path = route.filepath('transit timesteps', speed)
+        ets_path = route.filepath('elapsed timesteps', speed)
+
+        if tts_path.exists():
+            frame = DataFrame(csv_source=tts_path)
+        else:
+            if not ets_path.exists():
+                raise FileExistsError(ets_path)
+
+            frame = DataFrame(csv_source=ets_path)
+            frame.Time = to_datetime(frame.Time, utc=True)
+
+            # pass values and indices to improve performance
+            indices = [frame.columns.get_loc(c) for c in frame.columns.to_list() if Segment.prefix in c]
+            values = frame.values
+            transit_timesteps_arr = [self.total_transit_timesteps(row, values, indices) for row in range(len(frame))]
+
+            frame.drop(frame.columns[indices], axis=1, inplace=True)
+            frame['t_time'] = Series(transit_timesteps_arr)
+            frame.write(tts_path)
+
+        super().__init__(data=frame)
+
+
+class TimeStepsJob(Job):
+
+    def execute(self): return super().execute()
+    def execute_callback(self, result): return super().execute_callback(result)
+    def error_callback(self, result): return super().error_callback(result)
+
+    def __init__(self, speed: int, route: Route):
+        job_name = 'transit times' + ' ' + str(speed)
+        result_key = speed
+        arguments = tuple([speed, route])
+        super().__init__(job_name, result_key, TimeStepsFrame, arguments)
+
+
+class SavGolFrame(DataFrame):
+
+    savgol_size = 1100
+    savgol_order = 1
+
+    def __init__(self, timesteps_frame: DataFrame, savgol_path: Path):
+
+        if savgol_path.exists():
+            super().__init__(data=DataFrame(csv_source=savgol_path))
+        else:
+            timesteps_frame['midline'] = savgol_filter(timesteps_frame.t_time, self.savgol_size, self.savgol_order).round().astype('int')
+            timesteps_frame = timesteps_frame[timesteps_frame.t_time.ne(timesteps_frame.midline)].copy()  # remove values that equal the midline
+            timesteps_frame.loc[timesteps_frame.t_time.lt(timesteps_frame.midline), 'GL'] = True  # less than midline = false
+            timesteps_frame.loc[timesteps_frame.t_time.gt(timesteps_frame.midline), 'GL'] = False  # greater than midline => true
+            timesteps_frame['block'] = (timesteps_frame['GL'] != timesteps_frame['GL'].shift(1)).cumsum()  # index the blocks of True and False
+            timesteps_frame.write(savgol_path)
+            super().__init__(data=timesteps_frame)
+
+
+class SavGolJob(Job):
+
+    def execute(self): return super().execute()
+    def execute_callback(self, result): return super().execute_callback(result)
+    def error_callback(self, result): return super().error_callback(result)
+
+    def __init__(self, timesteps_frame: DataFrame, speed: int, route: Route):
+        job_name = 'savitzky-golay midlines' + ' ' + str(speed)
+        result_key = speed
+        arguments = tuple([timesteps_frame, route.filepath('savgol', speed)])
+        super().__init__(job_name, result_key, SavGolFrame, arguments)
+
+
+class MinimaFrame(DataFrame):
 
     noise_threshold = 100
 
-    def __init__(self, transit_timesteps_path: Path, savgol_path: Path):
+    # def __init__(self, transit_timesteps_path: Path, savgol_path: Path):
+    def __init__(self, savgol_frame: DataFrame, minima_path: Path):
 
-        self.frame = DataFrame(columns=MinimaFrame.frame_time_columns + MinimaFrame.frame_tts_columns)
-
-        if not print_file_exists(savgol_path):
-            frame = DataFrame(csv_source=transit_timesteps_path)
-            frame['test'] = savgol_filter(frame.t_time, pg.savgol_size, pg.savgol_order).round().astype('int')
-            frame['midline'] = savgol_filter(frame.t_time, pg.savgol_size, pg.savgol_order).round()
-            frame.midline = frame.midline.astype('int')
-            frame['TF'] = frame.t_time.lt(frame['midline'])  # Above midline = False,  below midline = True
-            frame = frame.drop(frame[frame.t_time == frame['midline']].index).reset_index(drop=True)  # remove values = midline
-            frame['block'] = (frame['TF'] != frame['TF'].shift(1)).cumsum()  # index the blocks of True and False
-            print_file_exists(frame.write(savgol_path))
+        if minima_path.exists():
+            super().__init__(data=DataFrame(csv_source=minima_path))
         else:
-            frame = DataFrame(csv_source=savgol_path)
+            # create a list of minima frames (TF = True, below midline) and larger than the noise threshold
+            blocks = [df.reset_index(drop=True).drop(labels=['GL', 'block', 'midline'], axis=1)
+                  for index, df in savgol_frame.groupby('block') if df['GL'].any() and len(df) > MinimaFrame.noise_threshold]
 
-        # create a list of minima frames (TF = True, below midline) and larger than the noise threshold
-        blocks = [df.reset_index(drop=True).drop(labels=['TF', 'block', 'midline'], axis=1)
-                  for index, df in frame.groupby('block') if df['TF'].any() and len(df) > MinimaFrame.noise_threshold]
+            frame = DataFrame(columns=['start_eastern_round', 'min_eastern_round', 'end_eastern_round'])
+            for i, df in enumerate(blocks):
+                median_stamp = df[df.t_time == df.min().t_time]['stamp'].median().astype(int)
+                frame.at[i, 'start_utc'] = df.iloc[0].Time
+                frame.at[i, 'end_utc'] = df.iloc[-1].Time
+                frame.at[i, 'min_utc'] = df.iloc[abs(df.stamp - median_stamp).idxmin()].Time
+                frame.at[i, 'start_tt'] = hours_mins(df.iloc[0].t_time * pg.timestep)
+                frame.at[i, 'end_tt'] = hours_mins(df.iloc[-1].t_time * pg.timestep)
+                frame.at[i, 'min_tt'] = hours_mins(df.iloc[abs(df.stamp - median_stamp).idxmin()].t_time * pg.timestep)
 
-        for i, df in enumerate(blocks):
-            median_stamp = df[df.t_time == df.min().t_time]['stamp'].median().astype(int)
-            self.frame.at[i, 'start_utc'] = df.iloc[0].Time
-            self.frame.at[i, 'end_utc'] = df.iloc[-1].Time
-            self.frame.at[i, 'min_utc'] = df.iloc[abs(df.stamp - median_stamp).idxmin()].Time
-            self.frame.at[i, 'start_tt'] = hours_mins(df.iloc[0].t_time * pg.timestep)
-            self.frame.at[i, 'end_tt'] = hours_mins(df.iloc[-1].t_time * pg.timestep)
-            self.frame.at[i, 'min_tt'] = hours_mins(df.iloc[abs(df.stamp - median_stamp).idxmin()].t_time * pg.timestep)
+            frame['start_eastern_round'] =  to_datetime(frame.start_utc, utc=True).dt.tz_convert('US/Eastern').round('15min')
+            frame['min_eastern_round'] = to_datetime(frame.min_utc, utc=True).dt.tz_convert('US/Eastern').round('15min')
+            frame['end_eastern_round'] = to_datetime(frame.end_utc, utc=True).dt.tz_convert('US/Eastern').round('15min')
 
-        self.frame.start_utc =  to_datetime(self.frame.start_utc, utc=True)
-        self.frame.min_utc = to_datetime(self.frame.min_utc, utc=True)
-        self.frame.end_utc = to_datetime(self.frame.end_utc, utc=True)
+            frame.drop(['start_utc', 'min_utc', 'end_utc'], axis=1, inplace=True)
 
-        self.frame.start_eastern = self.frame.start_utc.dt.tz_convert(tz='US/Eastern')
-        self.frame.min_eastern = self.frame.min_utc.dt.tz_convert(tz='US/Eastern')
-        self.frame.end_eastern = self.frame.end_utc.dt.tz_convert(tz='US/Eastern')
+            frame.write(minima_path)
+            super().__init__(data=frame)
 
-        self.frame.start_round = self.frame.start_utc.dt.round('15min')
-        self.frame.min_round = self.frame.min_utc.dt.round('15min')
-        self.frame.end_round = self.frame.end_utc.dt.round('15min')
 
-        self.frame.start_round = self.frame.start_round.dt.tz_convert(tz='US/Eastern')
-        self.frame['srutc'] = self.frame.start_utc.dt.tz_convert(tz='US/Eastern').round('15min')
-        self.frame.min_round = self.frame.min_round.dt.tz_convert(tz='US/Eastern')
-        self.frame.end_round = self.frame.end_round.dt.tz_convert(tz='US/Eastern')
+class MinimaJob(Job):  # super -> job name, result key, function/object, arguments
+
+    def execute(self): return super().execute()
+    def execute_callback(self, result): return super().execute_callback(result)
+    def error_callback(self, result): return super().error_callback(result)
+
+    def __init__(self, savgol_frame: DataFrame, speed: int, route: Route):
+        job_name = 'minima' + ' ' + str(speed)
+        result_key = speed
+        arguments = tuple([speed, route])
+        arguments = tuple([savgol_frame, route.filepath('minima', speed)])
+        super().__init__(job_name, result_key, MinimaFrame, arguments)
 
 
 def index_arc_df(frame):
@@ -130,60 +206,6 @@ def create_arcs(minima_path: Path, speed: int):
     return arcs_df
 
 
-class TimeStepsFrame(DataFrame):
-
-    @staticmethod
-    def total_transit_timesteps(init_row: int, ets_values: ndarray, array_indices: list):
-
-        max_row = len(ets_values) - 1
-        transit_time = 0
-        for idx in array_indices:
-            row = int(transit_time) + init_row
-            if row > max_row:
-                break
-            transit_time += ets_values[row, idx]
-        return transit_time
-
-
-    def __init__(self, speed: int, route: Route):
-
-        ets_path = route.filepath('elapsed timesteps', speed)
-        tts_path = route.filepath('transit timesteps', speed)
-        if not ets_path.exists():
-            raise FileExistsError(ets_path)
-
-        if not tts_path.exists():
-            frame = DataFrame(csv_source=ets_path)
-            frame.Time = to_datetime(frame.Time, utc=True)
-
-            # pass values and indices to improve performance
-            indices = [frame.columns.get_loc(c) for c in frame.columns.to_list() if Segment.prefix in c]
-            values = frame.values
-            transit_timesteps_arr = [self.total_transit_timesteps(row, values, indices) for row in range(len(frame))]
-
-            frame.drop(frame.columns[indices], axis=1, inplace=True)
-            frame['t_time'] = Series(transit_timesteps_arr)
-            frame.write(tts_path)
-        else:
-            frame = DataFrame(csv_source=tts_path)
-
-        super().__init__(data=frame)
-
-
-class TransitTimeMinimaFrame:
-
-    def __init__(self, speed: int, route: Route):
-
-        tts_path = route.filepath('transit timesteps', speed)
-        if not print_file_exists(tts_path):
-            raise FileExistsError(tts_path)
-
-        minima_path = route.filepath('minima', speed)
-        if not print_file_exists(minima_path):
-            self.frame = MinimaFrame(tts_path, route.filepath('savgol', speed)).frame
-            print_file_exists(write_df(self.frame, minima_path))
-
-
 class TransitTimeArcsFrame:
 
     def __init__(self, speed: int, route: Route):
@@ -197,42 +219,8 @@ class TransitTimeArcsFrame:
             self.frame = create_arcs(minima_path, speed)
             print_file_exists(write_df(self.frame, arcs_path))
 
-# class TransitTimeJob(Job):  # super -> job name, result key, function/object, arguments
-#
-#     def execute(self): return super().execute()
-#     def execute_callback(self, result): return super().execute_callback(result)
-#     def error_callback(self, result): return super().error_callback(result)
-#
-#     def __init__(self, speed: int, route: Route):
-#         job_name = 'transit_time' + ' ' + str(speed)
-#         result_key = speed
-#         arguments = tuple([speed, route])
-#         super().__init__(job_name, result_key, TransitTimeDataframe, arguments)
-
-class TimeStepsJob(Job):  # super -> job name, result key, function/object, arguments
-
-    def execute(self): return super().execute()
-    def execute_callback(self, result): return super().execute_callback(result)
-    def error_callback(self, result): return super().error_callback(result)
-
-    def __init__(self, speed: int, route: Route):
-        job_name = 'transit times' + ' ' + str(speed)
-        result_key = speed
-        arguments = tuple([speed, route])
-        super().__init__(job_name, result_key, TimeStepsFrame, arguments)
 
 
-class TransitTimeMinimaJob(Job):  # super -> job name, result key, function/object, arguments
-
-    def execute(self): return super().execute()
-    def execute_callback(self, result): return super().execute_callback(result)
-    def error_callback(self, result): return super().error_callback(result)
-
-    def __init__(self, speed: int, route: Route):
-        job_name = 'minima' + ' ' + str(speed)
-        result_key = speed
-        arguments = tuple([speed, route])
-        super().__init__(job_name, result_key, TransitTimeMinimaFrame, arguments)
 
 
 class TransitTimeArcsJob(Job):  # super -> job name, result key, function/object, arguments
@@ -250,21 +238,18 @@ class TransitTimeArcsJob(Job):  # super -> job name, result key, function/object
 
 def transit_time_processing(job_manager, route: Route):
 
-    # print(f'\nCalculating transit timesteps')
-    # # keys = [job_manager.submit_job(TransitTimeJob(speed, route)) for speed in PresetGlobals.speeds]
-    # for speed in pg.speeds:
-    #     job = TransitTimeJob(speed, route)
-    #     result = job.execute()
-    # # job_manager.wait()
-
     print(f'\nCalculating transit times')
-    for speed in pg.speeds:
-        job_manager.submit_job(TimeStepsJob(speed, route))
+    keys = [job_manager.submit_job(TimeStepsJob(speed, route)) for speed in pg.speeds]
     job_manager.wait()
 
-    print(f'\nCalculating transit minima')
-    for speed in pg.speeds:
-        job_manager.submit_job(TransitTimeMinimaJob(speed, route))
+    print(f'\nGenerating savgol frames')
+    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    keys = [job_manager.submit_job(SavGolJob(frame, speed, route)) for speed, frame in results.items()]
+    job_manager.wait()
+
+    print(f'\nGenerating minima frames')
+    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    keys = [job_manager.submit_job(MinimaJob(frame, speed, route)) for speed, frame in results.items()]
     job_manager.wait()
 
     print(f'\nCalculating transit arcs')
