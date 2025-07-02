@@ -1,20 +1,23 @@
 from argparse import ArgumentParser as argParser
 from pathlib import Path
+from functools import reduce
+from pandas import merge, to_datetime, concat
 
+from tt_dataframe.dataframe import DataFrame
+from tt_globals.globals import PresetGlobals as pg
 from tt_gpx.gpx import Route, EdgeNode, GpxFile
 from tt_job_manager.job_manager import JobManager
-from tt_globals.globals import PresetGlobals
 from tt_noaa_data.noaa_data import StationDict
+from tt_file_tools.file_tools import print_file_exists
 
-from elapsed_time import edge_processing
-from transit_time import transit_time_processing, SavGolFrame
+from tt_jobs.jobs import (ElapsedTimeJob, ElapsedTimeFrame, SavGolFrame, SavGolJob, TimeStepsJob, TimeStepsFrame,
+                          MinimaJob, MinimaFrame, ArcsJob, ArcsFrame)
 
 if __name__ == '__main__':
 
     ap = argParser()
     ap.add_argument('filepath', type=Path, help='path to gpx file')
     args = vars(ap.parse_args())
-
 
     # ---------- ROUTE OBJECT ----------
     station_dict = StationDict()
@@ -38,11 +41,10 @@ if __name__ == '__main__':
             node_list.append(node.next_edge.length)
         node_list.append(segment.node_list[-1].name)
         print(f'{segment.name}: {node_list} {segment.length}')
-    print(f'boat speeds: {PresetGlobals.speeds}')
+    print(f'boat speeds: {pg.speeds}')
     print(f'length {route.length} nm')
     print(f'direction {route.direction}')
     print(f'heading {route.heading}\n')
-
 
     # ---------- CHECK CHROME ----------
     # chrome_driver.check_driver()
@@ -53,14 +55,53 @@ if __name__ == '__main__':
     job_manager = JobManager()
     # job_manager = None
 
-    # ---------- EDGE PROCESSING ----------
-    edge_processing(route, job_manager)
+    print(f'\nCalculating elapsed times')
+    results = {}
+    for speed in pg.speeds:
+        print(f'Edges at {speed} kts')
 
-    # ---------- TRANSIT TIMES ----------
-    transit_time_processing(job_manager, route)
+        ets_path = route.filepath('elapsed timesteps', speed)
+        if ets_path.exists():
+            elapsed_time_df = DataFrame(csv_source=ets_path)
+            elapsed_time_df.Time = to_datetime(elapsed_time_df.Time, utc=True)
+        else:
+            keys = [job_manager.submit_job(ElapsedTimeJob(seg, speed)) for seg in route.segments]
+            job_manager.wait()
+
+            print(f'      Aggregating elapsed timesteps at {speed} kts into a dataframe', flush=True)
+            edge_frames = [job_manager.get_result(key) for key in keys]
+            elapsed_time_df = reduce(lambda left, right: merge(left, right, on=['stamp', 'Time']), edge_frames)
+            elapsed_time_df.write(ets_path)
+        results[speed] = elapsed_time_df
+
+    print(f'\nCalculating transit times')
+    keys = [job_manager.submit_job(TimeStepsJob(frame, speed, route)) for speed, frame in results.items()]
+    job_manager.wait()
+
+    print(f'\nGenerating savgol frames')
+    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    keys = [job_manager.submit_job(SavGolJob(frame, speed, route)) for speed, frame in results.items()]
+    job_manager.wait()
+
+    print(f'\nGenerating minima frames')
+    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    keys = [job_manager.submit_job(MinimaJob(frame, speed, route)) for speed, frame in results.items()]
+    job_manager.wait()
+
+    print(f'\nGenerating arcs frame')
+    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    keys = [job_manager.submit_job(ArcsJob(frame, route, speed)) for speed, frame in results.items()]
+    job_manager.wait()
+
+    print(f'\nAggregating transit times', flush=True)
+    frames = [DataFrame(csv_source=route.filepath('arcs', speed)) for speed in pg.speeds]
+    transit_times_df = concat(frames).reset_index(drop=True)
+    transit_times_df = transit_times_df.fillna("-")
+
+    transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
+    print_file_exists(transit_times_df.write(transit_times_path))
 
     route.folder.joinpath(str(route.heading) + '.heading').touch()
-
 
 
     # # if args['east_river']:
