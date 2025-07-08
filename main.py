@@ -97,6 +97,7 @@ if __name__ == '__main__':
     frames = [DataFrame(csv_source=route.filepath('arcs', speed)) for speed in pg.speeds]
     transit_times_df = concat(frames).reset_index(drop=True)
     transit_times_df = transit_times_df.fillna("-")
+    transit_times_df.drop(['start_datetime', 'min_datetime', 'end_datetime'], axis=1, inplace=True)
 
     transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
     print_file_exists(transit_times_df.write(transit_times_path))
