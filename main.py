@@ -10,8 +10,7 @@ from tt_job_manager.job_manager import JobManager
 from tt_noaa_data.noaa_data import StationDict
 from tt_file_tools.file_tools import print_file_exists
 
-from tt_jobs.jobs import (ElapsedTimeJob, ElapsedTimeFrame, SavGolFrame, SavGolJob, TimeStepsJob, TimeStepsFrame,
-                          MinimaJob, MinimaFrame, ArcsJob, ArcsFrame)
+from tt_jobs.jobs import ElapsedTimeJob, SavGolFrame, SavGolJob, TimeStepsJob, MinimaJob, ArcsJob
 
 if __name__ == '__main__':
 
