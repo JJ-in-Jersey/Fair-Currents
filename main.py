@@ -1,6 +1,7 @@
 from argparse import ArgumentParser as argParser
 from pathlib import Path
 from functools import reduce
+import numpy as np
 from pandas import merge, to_datetime, concat
 
 from tt_dataframe.dataframe import DataFrame
@@ -101,7 +102,8 @@ if __name__ == '__main__':
     transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
     print_file_exists(transit_times_df.write(transit_times_path))
 
-    route.folder.joinpath(str(route.heading) + '.heading').touch()
+    route.folder.joinpath(str(int(np.round(route.heading))) + '.heading').touch()
+    route.folder.joinpath(str(int(np.round(route.length))) + '.length').touch()
 
 
     # # if args['east_river']:
