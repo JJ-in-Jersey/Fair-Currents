@@ -5,7 +5,7 @@ import numpy as np
 from pandas import merge, to_datetime, concat
 
 from tt_dataframe.dataframe import DataFrame
-from tt_globals.globals import PresetGlobals as pg
+from tt_globals.globals import PresetGlobals
 from tt_gpx.gpx import Route, EdgeNode, GpxFile
 from tt_job_manager.job_manager import JobManager
 from tt_noaa_data.noaa_data import StationDict
@@ -20,7 +20,10 @@ if __name__ == '__main__':
     args = vars(ap.parse_args())
 
     # ---------- ROUTE OBJECT ----------
-    station_dict = StationDict()
+    if PresetGlobals.stations_file.exists():
+        station_dict = StationDict(json_source=PresetGlobals.stations_file)
+    else:
+        station_dict = StationDict()
     gpx_file = GpxFile(args['filepath'])
     route = Route(station_dict, gpx_file.tree)
 
@@ -41,7 +44,7 @@ if __name__ == '__main__':
             node_list.append(node.next_edge.length)
         node_list.append(segment.node_list[-1].name)
         print(f'{segment.name}: {node_list} {segment.length}')
-    print(f'boat speeds: {pg.speeds}')
+    print(f'boat speeds: {PresetGlobals.speeds}')
     print(f'length {route.length} nm')
     print(f'direction {route.direction}')
     print(f'heading {route.heading}\n')
@@ -57,7 +60,7 @@ if __name__ == '__main__':
 
     print(f'\nCalculating elapsed times')
     results = {}
-    for speed in pg.speeds:
+    for speed in PresetGlobals.speeds:
         print(f'Edges at {speed} kts')
 
         ets_path = route.filepath('elapsed timesteps', speed)
@@ -94,7 +97,7 @@ if __name__ == '__main__':
     job_manager.wait()
 
     print(f'\nAggregating transit times', flush=True)
-    frames = [DataFrame(csv_source=route.filepath('arcs', speed)) for speed in pg.speeds]
+    frames = [DataFrame(csv_source=route.filepath('arcs', speed)) for speed in PresetGlobals.speeds]
     transit_times_df = concat(frames).reset_index(drop=True)
     transit_times_df = transit_times_df.fillna("-")
     transit_times_df.drop(['start_datetime', 'min_datetime', 'end_datetime'], axis=1, inplace=True)
