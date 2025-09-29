@@ -13,6 +13,7 @@ from tt_file_tools.file_tools import print_file_exists
 
 from tt_jobs.jobs import ElapsedTimeJob, SavGolFrame, SavGolJob, TimeStepsJob, MinimaJob, ArcsJob
 
+
 if __name__ == '__main__':
 
     ap = argParser()
@@ -43,11 +44,10 @@ if __name__ == '__main__':
             node_list.append(node.name)
             node_list.append(node.next_edge.length)
         node_list.append(segment.node_list[-1].name)
-        print(f'{segment.name}: {node_list} {segment.length}')
+        print(f'{segment.name}: {node_list} {int(segment.length*100)/100} nm')
     print(f'boat speeds: {PresetGlobals.speeds}')
-    print(f'length {route.length} nm')
-    print(f'direction {route.direction}')
-    print(f'heading {route.heading}\n')
+    print(f'length {int(route.length*100)/100} nm')
+    print(f'direction: {route.direction}, heading: {route.heading}\n')
 
     # ---------- CHECK CHROME ----------
     # chrome_driver.check_driver()
@@ -69,6 +69,9 @@ if __name__ == '__main__':
             elapsed_time_df.Time = to_datetime(elapsed_time_df.Time, utc=True)
         else:
             keys = [job_manager.submit_job(ElapsedTimeJob(seg, speed)) for seg in route.segments]
+            # for seg in route.segments:
+            #     job = ElapsedTimeJob(seg, speed)
+            #     result = job.execute()
             job_manager.wait()
 
             print(f'      Aggregating elapsed timesteps at {speed} kts into a dataframe', flush=True)
