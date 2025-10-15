@@ -47,7 +47,21 @@ if __name__ == '__main__':
         print(f'{segment.name}: {node_list} {int(segment.length*100)/100} nm')
     print(f'boat speeds: {PresetGlobals.speeds}')
     print(f'length {int(route.length*100)/100} nm')
-    print(f'direction: {route.direction}, heading: {route.heading}\n')
+    print(f'direction: {route.directions[0]}, abbrev: {route.dir_abbrevs[0]},  heading: {route.heading}\n')
+
+
+    heading_file = route.folder.joinpath(str(int(np.round(route.heading))) + '.heading')
+    heading_file.parent.mkdir(parents=True, exist_ok=True)
+    heading_file.touch()
+    length_file = route.folder.joinpath(str(int(np.round(route.length))) + '.length')
+    length_file.parent.mkdir(parents=True, exist_ok=True)
+    length_file.touch()
+    pos_dir_file = route.folder.joinpath(route.dir_abbrevs[0] + '.dir')
+    pos_dir_file.parent.mkdir(parents=True, exist_ok=True)
+    pos_dir_file.touch()
+    neg_dir_file = route.folder.joinpath(route.dir_abbrevs[1] + '.-dir')
+    neg_dir_file.parent.mkdir(parents=True, exist_ok=True)
+    neg_dir_file.touch()
 
     # ---------- CHECK CHROME ----------
     # chrome_driver.check_driver()
@@ -107,9 +121,6 @@ if __name__ == '__main__':
 
     transit_times_path = route.folder.joinpath(route.template_dict['transit times'].substitute({'loc': route.code}))
     print_file_exists(transit_times_df.write(transit_times_path))
-
-    route.folder.joinpath(str(int(np.round(route.heading))) + '.heading').touch()
-    route.folder.joinpath(str(int(np.round(route.length))) + '.length').touch()
 
 
     # # if args['east_river']:
