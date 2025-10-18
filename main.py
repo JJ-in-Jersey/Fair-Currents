@@ -125,7 +125,7 @@ if __name__ == '__main__':
     print(f'\nAggregating fair current and savgol minima frames')
     for speed in fc_globals.SPEEDS:
         frame = concat([results_fair_current_minima_frame[speed], results_savgol_minima_frame[speed]], axis=0, ignore_index=True)
-        frame.sort_index(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
+        frame.sort_values(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
         frame.write(route.filepath('MinimaFrame', speed))
 
     print(f'\nGenerating arcs frame')
