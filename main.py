@@ -6,7 +6,7 @@ from pandas import merge, to_datetime, concat
 
 from tt_dataframe.dataframe import DataFrame
 import tt_globals.globals as fc_globals
-from tt_gpx.gpx import Route, EdgeNode, GpxFile, Segment
+from tt_gpx.gpx import Route, EdgeNode, GpxFile
 from tt_job_manager.job_manager import JobManager
 import tt_jobs.jobs as jobs
 from tt_noaa_data.noaa_data import StationDict
@@ -77,28 +77,24 @@ if __name__ == '__main__':
         ets_path = route.filepath(jobs.ElapsedTimeFrame.__name__, speed)
         if ets_path.exists():
             elapsed_time_df = DataFrame(csv_source=ets_path)
-            seg_cols = [c for c in elapsed_time_df.columns if Segment.prefix in c]
-            print(f'     reconstructing tuples ', end='', flush=True)
-            for c in seg_cols:
-                print(f'.', end='', flush=True)
-                elapsed_time_df.reconstruct_tuple_column(c, int, bool)
-            print()
-            elapsed_time_df.Time = to_datetime(elapsed_time_df.Time, utc=True)
         else:
             keys = [job_manager.submit_job(jobs.ElapsedTimeJob(seg, speed)) for seg in route.segments]
+            # for seg in route.segments:
+            #     job = jobs.ElapsedTimeJob(seg, speed)
+            #     results = job.execute()
             job_manager.wait()
 
             print(f'      Aggregating elapsed timesteps at {speed} kts into a dataframe', flush=True)
             edge_frames = [job_manager.get_result(key) for key in keys]
-            elapsed_time_df = reduce(lambda left, right: merge(left, right, on=['stamp', 'Time']), edge_frames)
-            seg_cols = [c for c in elapsed_time_df.columns if Segment.prefix in c]
-            fair_current = [all([row[c][1] for c in seg_cols]) for i, row in elapsed_time_df.iterrows()]
-            elapsed_time_df['fair_current'] = fair_current
+            elapsed_time_df = DataFrame(reduce(lambda left, right: merge(left, right, on=['stamp', 'Time']), edge_frames))
             elapsed_time_df.write(ets_path)
         results[speed] = elapsed_time_df
 
     print(f'\nCalculating transit times')
     keys = [job_manager.submit_job(jobs.TimeStepsJob(frame, speed, route)) for speed, frame in results.items()]
+    # for speed, frame in results.items():
+    #     job = jobs.TimeStepsJob(frame, speed, route)
+    #     result = job.execute()
     job_manager.wait()
     results_transit_times_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
@@ -107,34 +103,46 @@ if __name__ == '__main__':
     job_manager.wait()
     results_fair_currents_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
-    print(f'\nGenerating savgol frames')
-    keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
-    job_manager.wait()
-    results_savgol_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    # print(f'\nGenerating savgol frames')
+    # keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
+    # job_manager.wait()
+    # results_savgol_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
     print(f'\nGenerating fair current minima frames')
     keys = [job_manager.submit_job(jobs.FairCurrentMinimaJob(frame, speed, route)) for speed, frame in results_fair_currents_frame.items()]
     job_manager.wait()
     results_fair_current_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
-    print(f'\nGenerating savgol minima frames')
-    keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed, route)) for speed, frame in results_savgol_frame.items()]
-    job_manager.wait()
-    results_savgol_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    # print(f'\nGenerating savgol minima frames')
+    # keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed, route)) for speed, frame in results_savgol_frame.items()]
+    # job_manager.wait()
+    # results_savgol_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
+    minima_frame_results = {}
     print(f'\nAggregating fair current and savgol minima frames')
     for speed in fc_globals.SPEEDS:
-        frame = concat([results_fair_current_minima_frame[speed], results_savgol_minima_frame[speed]], axis=0, ignore_index=True)
-        frame.sort_values(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
-        frame.write(route.filepath('MinimaFrame', speed))
+        minima_frame_path = route.filepath('MinimaFrame', speed)
+        if minima_frame_path.exists():
+            minima_frame_results[speed] = DataFrame(csv_source=minima_frame_path)
+            date_cols = [c for c in minima_frame_results[speed].columns.tolist() if '_datetime' in c]
+            for date_col in date_cols:
+                minima_frame_results[speed][date_col] = to_datetime(minima_frame_results[speed][date_col], utc=True).dt.tz_convert('America/New_York')
+            # frame = DataFrame(concat([results_fair_current_minima_frame[speed], results_savgol_minima_frame[speed]], axis=0, ignore_index=True))
+            frame = results_fair_current_minima_frame[speed]
+            frame.sort_values(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
+            frame.write(minima_frame_path)
+            minima_frame_results[speed] = frame
 
     print(f'\nGenerating arcs frame')
-    keys = [job_manager.submit_job(jobs.ArcsJob(frame, route, speed)) for speed, frame in results.items()]
+    keys = [job_manager.submit_job(jobs.ArcsJob(frame, route, speed)) for speed, frame in minima_frame_results.items()]
+    # for speed, frame in minima_frame_results.items():
+    #     job = jobs.ArcsJob(frame, route, speed)
+    #     result = job.execute()
     job_manager.wait()
 
     print(f'\nAggregating transit times', flush=True)
-    frames = [DataFrame(csv_source=route.filepath('arcs', speed)) for speed in fc_globals.SPEEDS]
-    transit_times_df = concat(frames).reset_index(drop=True)
+    frames = [DataFrame(csv_source=route.filepath(jobs.ArcsFrame.__name__, speed)) for speed in fc_globals.SPEEDS]
+    transit_times_df = DataFrame(concat(frames).reset_index(drop=True))
     transit_times_df = transit_times_df.fillna("-")
     transit_times_df.drop(['start_datetime', 'min_datetime', 'end_datetime'], axis=1, inplace=True)
 
