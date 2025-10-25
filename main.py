@@ -148,9 +148,18 @@ if __name__ == '__main__':
         frame.write(minima_frame_path)
         minima_frames[speed] = frame
 
+    # minima_frames = {}
+    # for speed in fc_globals.SPEEDS:
+    #     path = route.filepath('MinimaFrame', speed)
+    #     if path.exists():
+    #         frame = DataFrame(csv_source=path)
+    #         for date_col in [c for c in frame.columns.tolist() if '_datetime' in c]:
+    #             frame[date_col] = to_datetime(frame[date_col], utc=True).dt.tz_convert('America/New_York')
+    #     minima_frames[speed] = frame
+
     print(f'\nGenerating arcs frame')
     keys = [job_manager.submit_job(jobs.ArcsJob(frame, route, speed)) for speed, frame in minima_frames.items()]
-    # for speed, frame in minima_frame_results.items():
+    # for speed, frame in minima_frames.items():
     #     job = jobs.ArcsJob(frame, route, speed)
     #     result = job.execute()
     job_manager.wait()
