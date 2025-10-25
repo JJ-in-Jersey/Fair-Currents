@@ -100,41 +100,56 @@ if __name__ == '__main__':
 
     print(f'\nGenerating fair current frames')
     keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
+    # for speed, frame in results_transit_times_frame.items():
+    #     job = jobs.FairCurrentJob(frame, speed, route)
+    #     result = job.execute()
     job_manager.wait()
     results_fair_currents_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
-    # print(f'\nGenerating savgol frames')
-    # keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
-    # job_manager.wait()
-    # results_savgol_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    print(f'\nGenerating savgol frames')
+    keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
+    job_manager.wait()
+    results_savgol_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
     print(f'\nGenerating fair current minima frames')
     keys = [job_manager.submit_job(jobs.FairCurrentMinimaJob(frame, speed, route)) for speed, frame in results_fair_currents_frame.items()]
+    # for speed, frame in results_fair_currents_frame.items():
+    #     job = jobs.FairCurrentMinimaJob(frame, speed, route)
+    #     result = job.execute()
     job_manager.wait()
     results_fair_current_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
-    # print(f'\nGenerating savgol minima frames')
-    # keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed, route)) for speed, frame in results_savgol_frame.items()]
-    # job_manager.wait()
-    # results_savgol_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    print(f'\nGenerating savgol minima frames')
+    keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed, route)) for speed, frame in results_savgol_frame.items()]
+    job_manager.wait()
+    results_savgol_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
 
-    minima_frame_results = {}
+    minima_frames = {}
     print(f'\nAggregating fair current and savgol minima frames')
     for speed in fc_globals.SPEEDS:
+        print(f'Minima frame for {speed}')
         minima_frame_path = route.filepath('MinimaFrame', speed)
         if minima_frame_path.exists():
-            minima_frame_results[speed] = DataFrame(csv_source=minima_frame_path)
-            date_cols = [c for c in minima_frame_results[speed].columns.tolist() if '_datetime' in c]
-            for date_col in date_cols:
-                minima_frame_results[speed][date_col] = to_datetime(minima_frame_results[speed][date_col], utc=True).dt.tz_convert('America/New_York')
-            # frame = DataFrame(concat([results_fair_current_minima_frame[speed], results_savgol_minima_frame[speed]], axis=0, ignore_index=True))
-            frame = results_fair_current_minima_frame[speed]
+            frame = DataFrame(csv_source=minima_frame_path)
+        else:
+            fair_currents_frame = results_fair_current_minima_frame.get(speed)
+            savgol_frame = results_savgol_minima_frame.get(speed)
+
+            if len(fair_currents_frame) > 0:
+                savgol_frame.drop(columns=['min_datetime', 'min_duration'], inplace=True)
+                frame = DataFrame(concat([fair_currents_frame, savgol_frame], axis=0, ignore_index=True))
+            else:
+                frame = savgol_frame
+
             frame.sort_values(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
-            frame.write(minima_frame_path)
-            minima_frame_results[speed] = frame
+
+        for date_col in [c for c in frame.columns.tolist() if '_datetime' in c]:
+            frame[date_col] = to_datetime(frame[date_col], utc=True).dt.tz_convert('America/New_York')
+        frame.write(minima_frame_path)
+        minima_frames[speed] = frame
 
     print(f'\nGenerating arcs frame')
-    keys = [job_manager.submit_job(jobs.ArcsJob(frame, route, speed)) for speed, frame in minima_frame_results.items()]
+    keys = [job_manager.submit_job(jobs.ArcsJob(frame, route, speed)) for speed, frame in minima_frames.items()]
     # for speed, frame in minima_frame_results.items():
     #     job = jobs.ArcsJob(frame, route, speed)
     #     result = job.execute()
