@@ -170,7 +170,14 @@ if __name__ == '__main__':
     transit_times_df = transit_times_df.fillna("-")
     transit_times_df.drop(['start_datetime', 'min_datetime', 'end_datetime'], axis=1, inplace=True)
 
-    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['transit_times'].substitute({'loc': route.code}))
+    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['savitsky golay'].substitute({'loc': route.code}))
+    print_file_exists(transit_times_df.write(transit_times_path))
+
+    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['fair currents'].substitute({'loc': route.code}))
+    transit_times_df = transit_times_df[transit_times_df['type'] != 'sg']
+    transit_times_df['start_duration_display'] = False
+    transit_times_df['min_duration_display'] = False
+    transit_times_df['end_duration_display'] = False
     print_file_exists(transit_times_df.write(transit_times_path))
 
     print(f'\nProcess Complete')
