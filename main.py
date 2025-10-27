@@ -9,6 +9,7 @@ import tt_globals.globals as fc_globals
 from tt_gpx.gpx import Route, EdgeNode, GpxFile
 from tt_job_manager.job_manager import JobManager
 import tt_jobs.jobs as jobs
+from tt_jobs.jobs import ElapsedTimeFrame
 from tt_noaa_data.noaa_data import StationDict
 from tt_file_tools.file_tools import print_file_exists
 
@@ -30,13 +31,13 @@ if __name__ == '__main__':
     print(f'savgol window size {jobs.SavGolFrame.savgol_size}')
     print(f'savgol polynomial order {jobs.SavGolFrame.savgol_order}')
 
-    print(f'\nCalculating route {route.name}')
-    print(f'code {route.code}')
-    print(f'total waypoints: {len(route.waypoints)}')
-    print(f'total edge nodes: {len(list(filter(lambda w: isinstance(w, EdgeNode), route.waypoints)))}')
-    print(f'total edges: {len(route.edges)}')
-    print(f'total segments: {len(route.segments)}')
-    for segment in route.segments:
+    print(f'\nCalculating route {Route.name}')
+    print(f'code {Route.code}')
+    print(f'total waypoints: {len(Route.waypoints)}')
+    print(f'total edge nodes: {len(list(filter(lambda w: isinstance(w, EdgeNode), Route.waypoints)))}')
+    print(f'total edges: {len(Route.edges)}')
+    print(f'total segments: {len(Route.segments)}')
+    for segment in Route.segments:
         node_list = []
         for node in segment.node_list[:-1]:
             node_list.append(node.name)
@@ -44,20 +45,20 @@ if __name__ == '__main__':
         node_list.append(segment.node_list[-1].name)
         print(f'{segment.name}: {node_list} {int(segment.length*100)/100} nm')
     print(f'boat speeds: {fc_globals.SPEEDS}')
-    print(f'length {int(route.length*100)/100} nm')
-    print(f'direction: {route.directions[0]}, abbrev: {route.dir_abbrevs[0]},  heading: {route.heading}\n')
+    print(f'length {int(Route.length*100)/100} nm')
+    print(f'direction: {Route.directions[0]}, abbrev: {Route.dir_abbrevs[0]},  heading: {Route.heading}\n')
 
 
-    heading_file = route.folder.joinpath(str(int(np.round(route.heading))) + '.heading')
+    heading_file = Route.folder.joinpath(str(int(np.round(Route.heading))) + '.heading')
     heading_file.parent.mkdir(parents=True, exist_ok=True)
     heading_file.touch()
-    length_file = route.folder.joinpath(str(int(np.round(route.length))) + '.length')
+    length_file = Route.folder.joinpath(str(int(np.round(Route.length))) + '.length')
     length_file.parent.mkdir(parents=True, exist_ok=True)
     length_file.touch()
-    pos_dir_file = route.folder.joinpath(route.dir_abbrevs[0] + '.dir')
+    pos_dir_file = Route.folder.joinpath(Route.dir_abbrevs[0] + '.dir')
     pos_dir_file.parent.mkdir(parents=True, exist_ok=True)
     pos_dir_file.touch()
-    neg_dir_file = route.folder.joinpath(route.dir_abbrevs[1] + '.-dir')
+    neg_dir_file = Route.folder.joinpath(Route.dir_abbrevs[1] + '.-dir')
     neg_dir_file.parent.mkdir(parents=True, exist_ok=True)
     neg_dir_file.touch()
 
@@ -74,38 +75,52 @@ if __name__ == '__main__':
     results = {}
     for speed in fc_globals.SPEEDS:
         print(f'Edges at {speed} kts')
-        ets_path = route.filepath(jobs.ElapsedTimeFrame.__name__, speed)
-        if ets_path.exists():
-            elapsed_time_df = DataFrame(csv_source=ets_path)
+        path = Route.filepath(ElapsedTimeFrame, speed)
+        if path.exists():
+            print(f'      Reading existing csv file for {speed}     ', end='', flush=True)
+            results[speed] = ElapsedTimeFrame(csv_source=path)
+            print(results[speed].message, flush=True)
         else:
+            print(f'      Calculating elapsed times for {speed}', flush=True)
             keys = [job_manager.submit_job(jobs.ElapsedTimeJob(seg, speed)) for seg in route.segments]
             # for seg in route.segments:
             #     job = jobs.ElapsedTimeJob(seg, speed)
             #     results = job.execute()
             job_manager.wait()
-
             print(f'      Aggregating elapsed timesteps at {speed} kts into a dataframe', flush=True)
+            print(f'           collecting results')
             edge_frames = [job_manager.get_result(key) for key in keys]
-            elapsed_time_df = DataFrame(reduce(lambda left, right: merge(left, right, on=['stamp', 'Time']), edge_frames))
-            elapsed_time_df.write(ets_path)
-        results[speed] = elapsed_time_df
+            print(f'           aggregating results')
+            elapsed_time_df = DataFrame(reduce(lambda left, right: merge(left, right, on=['stamp', 'Time', 'date']), edge_frames))
+            print(f'           writing results')
+            elapsed_time_df.write(route.filepath(jobs.ElapsedTimeFrame, speed))
+            results[speed] = elapsed_time_df
 
     print(f'\nCalculating transit times')
-    keys = [job_manager.submit_job(jobs.TimeStepsJob(frame, speed, route)) for speed, frame in results.items()]
+    keys = [job_manager.submit_job(jobs.TimeStepsJob(frame, speed)) for speed, frame in results.items()]
     # for speed, frame in results.items():
-    #     job = jobs.TimeStepsJob(frame, speed, route)
+    #     job = jobs.TimeStepsJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    results_transit_times_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    for s, f in results.items():
+        path = Route.filepath(jobs.TimeStepsFrame, s)
+        if not path.exists():
+            print(f'      Writing transit times for {s}', flush=True)
+            f.write(path)
 
     print(f'\nGenerating fair current frames')
-    keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
-    # for speed, frame in results_transit_times_frame.items():
-    #     job = jobs.FairCurrentJob(frame, speed, route)
+    keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed)) for speed, frame in results.items()]
+    # for speed, frame in results.items():
+    #     job = jobs.FairCurrentJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    results_fair_currents_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
-
+    for s, f in results.items():
+        path = Route.filepath(jobs.FairCurrentFrame, s)
+        if not path.exists():
+            print(f'      Writing fair current frames for {s}', flush=True)
+            f.write(path)
+            
     print(f'\nGenerating savgol frames')
     keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
     job_manager.wait()
