@@ -88,11 +88,11 @@ if __name__ == '__main__':
             #     results = job.execute()
             job_manager.wait()
             print(f'      Aggregating elapsed timesteps at {speed} kts into a dataframe', flush=True)
-            print(f'           collecting results')
+            print(f'           collecting results', flush=True)
             edge_frames = [job_manager.get_result(key) for key in keys]
-            print(f'           aggregating results')
+            print(f'           aggregating results', flush=True)
             elapsed_time_df = DataFrame(reduce(lambda left, right: merge(left, right, on=['stamp', 'Time', 'date']), edge_frames))
-            print(f'           writing results')
+            print(f'           writing results', flush=True)
             elapsed_time_df.write(route.filepath(jobs.ElapsedTimeFrame, speed))
             results[speed] = elapsed_time_df
 
@@ -102,42 +102,33 @@ if __name__ == '__main__':
     #     job = jobs.TimeStepsJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    results = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
-    for s, f in results.items():
-        path = Route.filepath(jobs.TimeStepsFrame, s)
-        if not path.exists():
-            print(f'      Writing transit times for {s}', flush=True)
-            f.write(path)
+    tt_results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
 
     print(f'\nGenerating fair current frames')
-    keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed)) for speed, frame in results.items()]
+    keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed)) for speed, frame in tt_results.items()]
     # for speed, frame in results.items():
     #     job = jobs.FairCurrentJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    for s, f in results.items():
-        path = Route.filepath(jobs.FairCurrentFrame, s)
-        if not path.exists():
-            print(f'      Writing fair current frames for {s}', flush=True)
-            f.write(path)
-            
-    print(f'\nGenerating savgol frames')
-    keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed, route)) for speed, frame in results_transit_times_frame.items()]
-    job_manager.wait()
-    results_savgol_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
 
     print(f'\nGenerating fair current minima frames')
-    keys = [job_manager.submit_job(jobs.FairCurrentMinimaJob(frame, speed, route)) for speed, frame in results_fair_currents_frame.items()]
-    # for speed, frame in results_fair_currents_frame.items():
-    #     job = jobs.FairCurrentMinimaJob(frame, speed, route)
+    keys = [job_manager.submit_job(jobs.FairCurrentMinimaJob(frame, speed)) for speed, frame in results.items()]
+    # for speed, frame in results.items():
+    #     job = jobs.FairCurrentMinimaJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    results_fair_current_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    fcm_results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
+
+    print(f'\nGenerating savgol frames')
+    keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed)) for speed, frame in tt_results.items()]
+    job_manager.wait()
+    results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
 
     print(f'\nGenerating savgol minima frames')
-    keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed, route)) for speed, frame in results_savgol_frame.items()]
+    keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed)) for speed, frame in results.items()]
     job_manager.wait()
-    results_savgol_minima_frame = {speed: job_manager.get_result(speed) for speed in keys}  # {'speed': frame}
+    sgm_results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
 
     minima_frames = {}
     print(f'\nAggregating fair current and savgol minima frames')
@@ -147,8 +138,8 @@ if __name__ == '__main__':
         if minima_frame_path.exists():
             frame = DataFrame(csv_source=minima_frame_path)
         else:
-            fair_currents_frame = results_fair_current_minima_frame.get(speed)
-            savgol_frame = results_savgol_minima_frame.get(speed)
+            fair_currents_frame = fcm_results.get(speed)
+            savgol_frame = sgm_results.get(speed)
 
             if len(fair_currents_frame) > 0:
                 savgol_frame.drop(columns=['min_datetime', 'min_duration'], inplace=True)
@@ -163,19 +154,10 @@ if __name__ == '__main__':
         frame.write(minima_frame_path)
         minima_frames[speed] = frame
 
-    # minima_frames = {}
-    # for speed in fc_globals.SPEEDS:
-    #     path = route.filepath('MinimaFrame', speed)
-    #     if path.exists():
-    #         frame = DataFrame(csv_source=path)
-    #         for date_col in [c for c in frame.columns.tolist() if '_datetime' in c]:
-    #             frame[date_col] = to_datetime(frame[date_col], utc=True).dt.tz_convert('America/New_York')
-    #     minima_frames[speed] = frame
-
     print(f'\nGenerating arcs frame')
-    keys = [job_manager.submit_job(jobs.ArcsJob(frame, route, speed)) for speed, frame in minima_frames.items()]
+    keys = [job_manager.submit_job(jobs.ArcsJob(frame, speed)) for speed, frame in minima_frames.items()]
     # for speed, frame in minima_frames.items():
-    #     job = jobs.ArcsJob(frame, route, speed)
+    #     job = jobs.ArcsJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
 
