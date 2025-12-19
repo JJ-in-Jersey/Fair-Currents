@@ -77,9 +77,9 @@ if __name__ == '__main__':
         print(f'Edges at {speed} kts')
         path = Route.filepath(ElapsedTimeFrame, speed)
         if path.exists():
-            print(f'      Reading existing csv file for {speed}     ', end='', flush=True)
+            print(f'      Reading existing csv file for {speed}  ', end="", flush=True)
             results[speed] = ElapsedTimeFrame(csv_source=path)
-            print(results[speed].message, flush=True)
+            print(f'#utc dates: {results[speed].date.nunique()}', flush=True)
         else:
             print(f'      Calculating elapsed times for {speed}', flush=True)
             keys = [job_manager.submit_job(jobs.ElapsedTimeJob(seg, speed)) for seg in route.segments]
@@ -102,7 +102,7 @@ if __name__ == '__main__':
     #     job = jobs.TimeStepsJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    tt_results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
+    tt_results = {speed: job_manager.get_result(speed) for speed in keys}
 
     print(f'\nGenerating fair current frames')
     keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed)) for speed, frame in tt_results.items()]
@@ -110,25 +110,25 @@ if __name__ == '__main__':
     #     job = jobs.FairCurrentJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
-
+    results = {speed: job_manager.get_result(speed) for speed in keys}
+    
     print(f'\nGenerating fair current minima frames')
     keys = [job_manager.submit_job(jobs.FairCurrentMinimaJob(frame, speed)) for speed, frame in results.items()]
     # for speed, frame in results.items():
     #     job = jobs.FairCurrentMinimaJob(frame, speed)
     #     result = job.execute()
     job_manager.wait()
-    fcm_results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
+    fcm_results =  {speed: job_manager.get_result(speed) for speed in keys}
 
     print(f'\nGenerating savgol frames')
     keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed)) for speed, frame in tt_results.items()]
     job_manager.wait()
-    results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
+    results = {speed: job_manager.get_result(speed) for speed in keys}
 
     print(f'\nGenerating savgol minima frames')
     keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed)) for speed, frame in results.items()]
     job_manager.wait()
-    sgm_results = {result_tuple[0]: job_manager.get_result(result_tuple) for result_tuple in keys}
+    sgm_results = results = {speed: job_manager.get_result(speed) for speed in keys}
 
     minima_frames = {}
     print(f'\nAggregating fair current and savgol minima frames')
@@ -140,15 +140,12 @@ if __name__ == '__main__':
         else:
             fair_currents_frame = fcm_results.get(speed)
             savgol_frame = sgm_results.get(speed)
-
             if len(fair_currents_frame) > 0:
                 savgol_frame.drop(columns=['min_datetime', 'min_duration'], inplace=True)
                 frame = DataFrame(concat([fair_currents_frame, savgol_frame], axis=0, ignore_index=True))
             else:
                 frame = savgol_frame
-
             frame.sort_values(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
-
         for date_col in [c for c in frame.columns.tolist() if '_datetime' in c]:
             frame[date_col] = to_datetime(frame[date_col], utc=True).dt.tz_convert('America/New_York')
         frame.write(minima_frame_path)
@@ -167,10 +164,10 @@ if __name__ == '__main__':
     transit_times_df = transit_times_df.fillna("-")
     transit_times_df.drop(['start_datetime', 'min_datetime', 'end_datetime'], axis=1, inplace=True)
 
-    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['savitsky golay'].substitute({'loc': route.code}))
+    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['complete'].substitute({'loc': route.code}))
     print_file_exists(transit_times_df.write(transit_times_path))
 
-    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['fair currents'].substitute({'loc': route.code}))
+    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['simple'].substitute({'loc': route.code}))
     transit_times_df = transit_times_df[transit_times_df['type'] != 'sg']
     transit_times_df['start_duration_display'] = False
     transit_times_df['end_duration_display'] = False
