@@ -167,11 +167,11 @@ if __name__ == '__main__':
     transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['complete'].substitute({'loc': route.code}))
     print_file_exists(transit_times_df.write(transit_times_path))
 
-    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['simple'].substitute({'loc': route.code}))
-    transit_times_df = transit_times_df[transit_times_df['type'] != 'sg']
-    transit_times_df['start_duration_display'] = False
-    transit_times_df['end_duration_display'] = False
-    print_file_exists(transit_times_df.write(transit_times_path))
+    # transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['simple'].substitute({'loc': route.code}))
+    # transit_times_df = transit_times_df[transit_times_df['type'] != 'sg']
+    # transit_times_df['start_duration_display'] = False
+    # transit_times_df['end_duration_display'] = False
+    # print_file_exists(transit_times_df.write(transit_times_path))
 
     print(f'\nProcess Complete')
 
