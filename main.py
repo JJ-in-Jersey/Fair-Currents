@@ -17,14 +17,15 @@ if __name__ == '__main__':
 
     ap = argParser()
     ap.add_argument('filepath', type=Path, help='path to gpx file')
-    args = vars(ap.parse_args())
+    ap.add_argument('-hg', '--hell_gate', action='store_true', help='flag for hell gate calculation')
+    args = ap.parse_args()
 
     # ---------- ROUTE OBJECT ----------
     if fc_globals.STATIONS_FILE.exists():
         station_dict = StationDict(json_source=fc_globals.STATIONS_FILE)
     else:
         station_dict = StationDict()
-    gpx_file = GpxFile(args['filepath'])
+    gpx_file = GpxFile(args.filepath)
     route = Route(station_dict, gpx_file.tree)
 
     print(f'\nParameters')
@@ -47,7 +48,6 @@ if __name__ == '__main__':
     print(f'boat speeds: {fc_globals.SPEEDS}')
     print(f'length {int(Route.length*100)/100} nm')
     print(f'direction: {Route.directions[0]}, abbrev: {Route.dir_abbrevs[0]},  heading: {Route.heading}\n')
-
 
     heading_file = Route.folder.joinpath(str(int(np.round(Route.heading))) + '.heading')
     heading_file.parent.mkdir(parents=True, exist_ok=True)
@@ -104,6 +104,16 @@ if __name__ == '__main__':
     job_manager.wait()
     tt_results = {speed: job_manager.get_result(speed) for speed in keys}
 
+    hg_results = None
+    if args.hell_gate:
+        print(f'\nGenerating hell gate frames')
+        keys = [job_manager.submit_job(jobs.HellGateJob(frame, speed)) for speed, frame in tt_results.items()]
+        # for speed, frame in tt_results.items():
+        #     job = jobs.HellGateJob(frame, speed)
+        #     result = job.execute()
+        job_manager.wait()
+        hg_results = {speed: job_manager.get_result(speed) for speed in keys}
+
     print(f'\nGenerating fair current frames')
     keys = [job_manager.submit_job(jobs.FairCurrentJob(frame, speed)) for speed, frame in tt_results.items()]
     # for speed, frame in results.items():
@@ -111,7 +121,7 @@ if __name__ == '__main__':
     #     result = job.execute()
     job_manager.wait()
     results = {speed: job_manager.get_result(speed) for speed in keys}
-    
+
     print(f'\nGenerating fair current minima frames')
     keys = [job_manager.submit_job(jobs.FairCurrentMinimaJob(frame, speed)) for speed, frame in results.items()]
     # for speed, frame in results.items():
@@ -123,15 +133,15 @@ if __name__ == '__main__':
     print(f'\nGenerating savgol frames')
     keys = [job_manager.submit_job(jobs.SavGolJob(frame, speed)) for speed, frame in tt_results.items()]
     job_manager.wait()
-    results = {speed: job_manager.get_result(speed) for speed in keys}
+    sg_results = {speed: job_manager.get_result(speed) for speed in keys}
 
     print(f'\nGenerating savgol minima frames')
-    keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed)) for speed, frame in results.items()]
+    keys = [job_manager.submit_job(jobs.SavGolMinimaJob(frame, speed)) for speed, frame in sg_results.items()]
     job_manager.wait()
     sgm_results = results = {speed: job_manager.get_result(speed) for speed in keys}
 
     minima_frames = {}
-    print(f'\nAggregating fair current and savgol minima frames')
+    print(f'\nAggregating minima frames')
     for speed in fc_globals.SPEEDS:
         print(f'Minima frame for {speed}')
         minima_frame_path = route.filepath('MinimaFrame', speed)
@@ -140,14 +150,15 @@ if __name__ == '__main__':
         else:
             fair_currents_frame = fcm_results.get(speed)
             savgol_frame = sgm_results.get(speed)
-            if len(fair_currents_frame) > 0:
-                savgol_frame.drop(columns=['min_datetime', 'min_duration'], inplace=True)
+            savgol_frame.drop(columns=['min_datetime', 'min_duration'], inplace=True)
+            if hg_results is None:
                 frame = DataFrame(concat([fair_currents_frame, savgol_frame], axis=0, ignore_index=True))
             else:
-                frame = savgol_frame
+                hg_frame = hg_results.get(speed)
+                frame = DataFrame(concat([fair_currents_frame, savgol_frame, hg_frame], axis=0, ignore_index=True))
             frame.sort_values(by=['start_datetime', 'type'], inplace=True, ignore_index=True)
         for date_col in [c for c in frame.columns.tolist() if '_datetime' in c]:
-            frame[date_col] = to_datetime(frame[date_col], utc=True).dt.tz_convert('America/New_York')
+            frame[date_col] = to_datetime(frame[date_col], utc=True).dt.tz_convert('US/Eastern')
         frame.write(minima_frame_path)
         minima_frames[speed] = frame
 
