@@ -175,7 +175,8 @@ if __name__ == '__main__':
     transit_times_df = transit_times_df.fillna("-")
     transit_times_df.drop(['start_datetime', 'min_datetime', 'end_datetime'], axis=1, inplace=True)
 
-    transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['complete'].substitute({'loc': route.code}))
+    # transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['transit_time'].substitute({'loc': route.code}))
+    transit_times_path = route.folder.joinpath('aggregate_transit_times.csv')
     print_file_exists(transit_times_df.write(transit_times_path))
 
     # transit_times_path = route.folder.joinpath(fc_globals.TEMPLATES['simple'].substitute({'loc': route.code}))
