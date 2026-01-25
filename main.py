@@ -21,10 +21,7 @@ if __name__ == '__main__':
     args = ap.parse_args()
 
     # ---------- ROUTE OBJECT ----------
-    if fc_globals.STATIONS_FILE.exists():
-        station_dict = StationDict(json_source=fc_globals.STATIONS_FILE)
-    else:
-        station_dict = StationDict()
+    station_dict = StationDict()
     gpx_file = GpxFile(args.filepath)
     route = Route(station_dict, gpx_file.tree)
 
